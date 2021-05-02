@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.19)
+project(Reflection_on_shielded_Coulomb_Potential)
+
+set(CMAKE_CXX_STANDARD 17)
+
+add_executable(Reflection_on_shielded_Coulomb_Potential main.cpp)
