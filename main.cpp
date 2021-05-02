@@ -66,6 +66,19 @@ void crystal_plot ();
 
 std::pair<double, double> default_position_and_direction ();
 
+double random_sighting_parameter_generator (double& b_max);
+
+
+//Read about this function in ReadMe.
+double scattering_angle (double& b, double& Energy) {return std::abs(pi - pi*b /
+                                                        (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
+
+double inelastic_energy_loss (double& b, double& Energy);
+
+double Firsovs_shielding (double& Z_min, double& Z_max) {return 0.8853*a_0 *
+                                                        std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
+
+
 int main() {
     std::generate(E.begin(), E.end(), [&] {return E_min++;}); //Creating energy range.
     std::vector<double> r = std::move(distance_from_mass_center(E));
@@ -74,8 +87,27 @@ int main() {
     crystal_plot();
     std::vector<coord> default_wave_packets(number_of_problems);
     for (int i = 0; i < number_of_problems; i++)
-        default_wave_packets[i] = (std::move(default_position_and_direction()));
+        default_wave_packets[i] = std::move(default_position_and_direction());
     return 0;
+}
+
+
+//Think about this. Particles lose there's Energy anyway!
+double inelastic_energy_loss (double& b, double& Energy, double& U, double& v) {
+    double Z_min = std::min(Z_Al, Z_H);
+    double Z_max = std::max(Z_Al, Z_H);
+    double r_min = std::sqrt((Energy * std::pow(b, 2) + potential_factor) / Energy); // r_min = r_min(b)
+    return 0.3 * Z_Al * (std::sqrt(Z_max) + std::sqrt(Z_min)) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)) /
+            (1+0.67*std::sqrt(Z_max)*r_min /
+            std::pow(Firsovs_shielding(Z_min, Z_max) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)), 3.0)) *
+                       (1-0.68 * U / Energy) * v;
+}
+
+
+double random_sighting_parameter_generator (double& b_max) {
+    std::uniform_real_distribution<> dis(0.0, 1.0);
+    double gamma = dis(gen);
+    return b_max*std::sqrt(gamma);
 }
 
 std::pair<double, double> default_position_and_direction () {
