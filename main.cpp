@@ -29,7 +29,10 @@
 #include <stdexcept>
 
 const double Z_H = 1;
+const double m_H = 1.00811;
 const double Z_Al = 13;
+const double m_Al = 26.9815386;
+const double mu = m_H*m_Al / (m_H + m_Al); //reduced mass.
 
 const double a_0 = 5.29177210903e-9; //Bohr's radius.
 
@@ -40,6 +43,8 @@ const double alpha_Al = 8.34; //Electronic polarizability.
 const double pi = 3.14159265359;
 
 const double e = 1.0;
+
+const double E_final = 10;
 
 const std::pair<double, double> throwing_body_size = std::make_pair(1.8897e1, 1.8897e1);
 
@@ -87,13 +92,12 @@ coord coordinate_transorm (coord& polar);
 
 void particles_trajectories ();
 
-coord mass_center (coord& particle, coord& potential);
+double mass_center (double particle_mass, double potential_mass, double& b);
 
-double free_run_length ();
+double free_run_length (double& v, double alpha, double mu);
 
-coord offset ();
-
-coord interaction_node (coord& init_point, coord& final_point);
+coord interaction_node (coord& init_point, double& free_run, double& dir_cos, double& b_max,
+                        std::vector<coord>& nodes, double& closest_approach_radius);
 
 std::vector<coord> subarea (double& x_0, double& c_1, double& c_2, double& dir_cos, double& free_run,
                             std::vector<coord>& nodes);
@@ -102,9 +106,20 @@ void general_equation_of_the_line (double& A, double& B, double& C, double x_1, 
 
 double distance_from_point_to_line (double& A, double& B, double& C, double& x, double& y);
 
-coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& inits, double& x_final, double& y_final);
+coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& inits, coord maximum_trajectory);
 
 std::vector<double> quadratic_equation_solve (double& a, double& b, double& c);
+
+double direction_cos ();
+
+void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes);
+
+coord vector_offset (coord& frame_of_reference, coord& vector);
+
+coord vector_creation (coord& end, coord& begin);
+
+coord rotation_matrix (coord& vector, double& theta);
+
 
 int main() {
     std::generate(default_energy.begin(), default_energy.end(), [&] {return E_min++;}); //Creating energy range.
@@ -118,6 +133,49 @@ int main() {
 }
 
 
+
+void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes) {
+    for (int i = 0; i < number_of_problems; i++) {
+        double E = Energy[i];
+        coord particle_coordinate = initial_coordinate;
+        double dir_cos = direction_cos();
+        double x_1 = initial_coordinate.first;
+        double y_1 = initial_coordinate.second;
+        do {
+            double b;
+            double b_max = 1.5 * distance_from_mass_center(E);
+            double v = velocity(E, m_H);
+            double l = free_run_length(v, alpha_Al, mu);
+            double x_2 = l*dir_cos + x_1;
+            double y_2 = l*std::sin(std::acos(dir_cos)) + y_1;
+            coord scattering_potential = interaction_node(particle_coordinate, l, dir_cos, b_max,
+                                                          nodes, b);
+            coord intersection_point = intersection_of_a_line_and_a_circle(scattering_potential, b, initial_coordinate,
+                                                                           std::make_pair(x_2, y_2));
+            double theta = scattering_angle(b, E);
+            dir_cos = std::cos(theta);
+            //Well, now we have to offset to aluminum reference frame (scattering potential);
+            x_1 = x_2;
+            y_1 = y_2;
+        } while (E > E_final && x_1 > 0);
+    }
+}
+
+coord rotation_matrix (coord& vector, double& theta) {
+    double x = vector.first;
+    double y = vector.second;
+    double x_theta = x*std::cos(theta) - y*std::sin(theta);
+    double y_theta = x*std::sin(theta) + y*std::cos(theta);
+    return std::make_pair(x_theta, y_theta);
+}
+
+coord vector_creation (coord& end, coord& begin) {return std::make_pair(end.first - begin.first,
+                                                                        end.second - begin.second);};
+
+coord vector_offset (coord& frame_of_reference, coord& vector) {
+    return std::make_pair(frame_of_reference.first + vector.first, frame_of_reference.second + vector.second);
+}
+
 template<typename T, size_t... Is>
 auto abs_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
     return (std::sqrt((std::pow(std::get<Is>(t) - std::get<Is>(t1), 2) + ...)));
@@ -129,9 +187,11 @@ double abs_vector_components (const Tuple& t, const Tuple& t1) {
     return abs_components_impl(t, t1,  std::make_index_sequence<size>{}, std::make_index_sequence<size>{});
 }
 
-coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& inits, double& x_final, double& y_final) {
+coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& inits, coord maximum_trajectory) {
     double x_init = inits.first;
     double y_init = inits.second;
+    double x_final = maximum_trajectory.first;
+    double y_final = maximum_trajectory.second;
     coord intersection;
     double A, B, C;
     double a = center.first;
@@ -172,15 +232,9 @@ double direction_cos () { //returns cos angle.
     return 2*dis(gen) - 1;
 }
 
-
-
-//Then we have to know the velocity of particle.
-
-
-
-//Then we have to define the interaction node
+//Then we have to define the interaction node and closest approach radius.
 coord interaction_node (coord& init_point, double& free_run, double& dir_cos, double& b_max,
-                        std::vector<coord>& nodes) {
+                        std::vector<coord>& nodes, double& closest_approach_radius) {
     double A, B, C, r, d;
     int i = 0;
     double x_1 = init_point.first;
@@ -188,12 +242,17 @@ coord interaction_node (coord& init_point, double& free_run, double& dir_cos, do
     double x_2 = free_run*dir_cos + x_1;
     double y_2 = free_run*std::sin(std::acos(dir_cos)) + y_1;
     std::vector<coord> subnodes = std::move(subarea(x_1, y_1, x_2, y_2, b_max, nodes));
+
+    //test other parts before using it!
+    //std::sort(subnodes.begin(), subnodes.end(), [&] {return abs_vector_components(init_point, subnodes[i]);});
+
     general_equation_of_the_line(A, B, C, x_1, y_1, x_2, y_2);
     do {
         r = random_sighting_parameter_generator(b_max);
         d = distance_from_point_to_line(A, B, C, subnodes[i].first, subnodes[i].second);
         i++;
     } while (r <= d && i < subnodes.size());
+    closest_approach_radius = r;
     return subnodes[i];
 }
 
@@ -233,23 +292,9 @@ double free_run_length (double& v, double alpha, double mu) {
     return -lambda_average * std::log(dis(gen));
 }
 
-
-/*coord mass_center (coord& particle, coord& potential) {
-
-}*/
-
-void particle_trajectories (std::vector<double>& E_init) {
-    for (int i = 0; i < E_init.size(); i++) {
-        double E_0 = 10;
-        double E = E_init[i];
-        double x, y, b, U, v;
-        do {
-            //while (/*b-statment*/) {}
-
-            trajectory[i].emplace_back(std::move(std::make_pair(x, y)));
-            E -= inelastic_energy_loss(b, E, U, v);
-        } while (E > E_0 && x > 0);
-    }
+double mass_center (double particle_mass, double potential_mass, double& b) {
+    double sum = particle_mass*b + potential_mass;
+    return sum / (m_H + m_Al);
 }
 
 //Function takes as input coordinates in polar system and return the coordinates in descart coordinate system.
