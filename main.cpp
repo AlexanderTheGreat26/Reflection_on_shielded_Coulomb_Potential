@@ -24,17 +24,17 @@
 #include <tuple>
 #include <array>
 #include <algorithm>
-#include <iterator>
-#include <memory>
 #include <stdexcept>
 
+
+const double m_e = 5.48579909065e-4;
 const double Z_H = 1;
-const double m_H = 1.00811;
+const double m_H = 1.00811 / m_e;
 const double Z_Al = 13;
-const double m_Al = 26.9815386;
+const double m_Al = 26.9815386 / m_e;
 const double mu = m_H*m_Al / (m_H + m_Al); //reduced mass.
 
-const double a_0 = 5.29177210903e-9; //Bohr's radius.
+const double a_0 = 5.29177210903e-9; //Bohr's radius (cm)
 
 const double Al_distance =  2.86e-10 /  a_0;
 const double n = 1.8194e+08 * a_0;
@@ -46,7 +46,7 @@ const double e = 1.0;
 
 const double E_final = 10;
 
-const std::pair<double, double> throwing_body_size = std::make_pair(1.8897e1, 1.8897e1);
+const std::pair<double, double> throwing_body_size = std::make_pair(1.8897e2, 1.8897e2);
 
 typedef std::pair<double, double> coord;
 
@@ -60,7 +60,11 @@ std::vector<double> default_energy (number_of_problems); //Just energy range. In
 
 const double potential_factor = 0.4 * Z_H * Z_Al / (std::pow((std::sqrt(Z_H) + std::sqrt(Z_Al)), 2.0/3.0));
 
+std::vector<std::pair<int, double>> outside; //the array of number of problem and final energy
+
 std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
+
+std::vector<std::vector<std::pair<coord, double>>> sighting_param (number_of_problems);
 
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
@@ -120,19 +124,61 @@ coord vector_creation (coord& end, coord& begin);
 
 coord rotation_matrix (coord& vector, double& theta);
 
+double cos_t (coord& a, coord& b);
+
+double shielded_Coulomb_potential (double& r) {return potential_factor / std::pow(r, 2);};
+
+void data_file_creation (std::string DataType, std::vector<std::tuple<coord, coord, double>>& data);
 
 int main() {
     std::generate(default_energy.begin(), default_energy.end(), [&] {return E_min++;}); //Creating energy range.
     std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_distance));
     data_file_creation("Nodes", nodes);
-    crystal_plot();
-    std::vector<coord> default_wave_packets(number_of_problems);
-    for (int i = 0; i < number_of_problems; i++)
-        default_wave_packets[i] = std::move(default_position_and_direction());
+
+
+    coord init = std::make_pair(0, throwing_body_size.first / 2.0);
+
+    particle_wander(default_energy, init, nodes);
+
     return 0;
 }
 
+template<typename T, size_t... Is>
+auto abs_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
+    return (std::sqrt((std::pow(std::get<Is>(t) - std::get<Is>(t1), 2) + ...)));
+}
 
+template <class Tuple>
+double abs_vector_components (const Tuple& t, const Tuple& t1) {
+    constexpr auto size = std::tuple_size<Tuple>{};
+    return abs_components_impl(t, t1,  std::make_index_sequence<size>{}, std::make_index_sequence<size>{});
+}
+
+template<typename T, size_t... Is>
+auto scalar_prod_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
+    return ((std::get<Is>(t) * std::get<Is>(t1)) + ...);
+}
+
+template<typename T, size_t... Is>
+auto abs_components_impl(T const& t, std::index_sequence<Is...>) {
+    return std::sqrt((std::pow(std::get<Is>(t), 2) + ...));
+}
+
+template <class Tuple>
+double abs_components(const Tuple& t) {
+    constexpr auto size = std::tuple_size<Tuple>{};
+    return abs_components_impl(t, std::make_index_sequence<size>{});
+}
+
+template <class Tuple>
+double scalar_prod_components(const Tuple& t, const Tuple& t1) {
+    constexpr auto size = std::tuple_size<Tuple>{};
+    return scalar_prod_components_impl(t, t1,  std::make_index_sequence<size>{}, std::make_index_sequence<size>{});
+}
+
+double cos_t (coord& a, coord& b) {
+    return scalar_prod_components(a, b) / (abs_components(a) * abs_components(b));
+}
 
 void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes) {
     for (int i = 0; i < number_of_problems; i++) {
@@ -141,23 +187,31 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
         double dir_cos = direction_cos();
         double x_1 = initial_coordinate.first;
         double y_1 = initial_coordinate.second;
+        double x_2, y_2, b;
         do {
-            double b;
-            double b_max = 1.5 * distance_from_mass_center(E);
+            double r = distance_from_mass_center(E);
+            double b_max = 1.5 * r;
             double v = velocity(E, m_H);
             double l = free_run_length(v, alpha_Al, mu);
-            double x_2 = l*dir_cos + x_1;
-            double y_2 = l*std::sin(std::acos(dir_cos)) + y_1;
+            x_2 = l*dir_cos + x_1;
+            y_2 = l*std::sin(std::acos(dir_cos)) + y_1;
+            coord max_free_run = std::make_pair(x_2, y_2);
             coord scattering_potential = interaction_node(particle_coordinate, l, dir_cos, b_max,
                                                           nodes, b);
             coord intersection_point = intersection_of_a_line_and_a_circle(scattering_potential, b, initial_coordinate,
-                                                                           std::make_pair(x_2, y_2));
+                                                                           max_free_run);
             double theta = scattering_angle(b, E);
-            dir_cos = std::cos(theta);
-            //Well, now we have to offset to aluminum reference frame (scattering potential);
-            x_1 = x_2;
-            y_1 = y_2;
-        } while (E > E_final && x_1 > 0);
+            coord rho = vector_creation(intersection_point, scattering_potential);
+            coord rotation = rotation_matrix(rho, theta);
+            coord new_direction = vector_offset(intersection_point, rotation);
+            dir_cos = cos_t(max_free_run, new_direction);
+            double U = shielded_Coulomb_potential(r);
+            E -= inelastic_energy_loss(b, E, U, v);
+            x_1 = intersection_point.first;
+            y_1 = intersection_point.second;
+            trajectory[i].emplace_back(std::make_pair(x_1, y_1));
+            if (x_1 <= nodes[1].first) outside.emplace_back(std::make_pair(i, E));
+        } while (E > E_final && x_1 > nodes[1].first && y_1 < nodes[nodes.size()-1].second);
     }
 }
 
@@ -174,17 +228,6 @@ coord vector_creation (coord& end, coord& begin) {return std::make_pair(end.firs
 
 coord vector_offset (coord& frame_of_reference, coord& vector) {
     return std::make_pair(frame_of_reference.first + vector.first, frame_of_reference.second + vector.second);
-}
-
-template<typename T, size_t... Is>
-auto abs_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
-    return (std::sqrt((std::pow(std::get<Is>(t) - std::get<Is>(t1), 2) + ...)));
-}
-
-template <class Tuple>
-double abs_vector_components (const Tuple& t, const Tuple& t1) {
-    constexpr auto size = std::tuple_size<Tuple>{};
-    return abs_components_impl(t, t1,  std::make_index_sequence<size>{}, std::make_index_sequence<size>{});
 }
 
 coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& inits, coord maximum_trajectory) {
@@ -229,7 +272,7 @@ std::vector<double> quadratic_equation_solve (double& a, double& b, double& c) {
 //First of all lets generate the direction of particle.
 double direction_cos () { //returns cos angle.
     std::uniform_real_distribution<> dis(0.0, 1.0);
-    return 2*dis(gen) - 1;
+    return dis(gen);
 }
 
 //Then we have to define the interaction node and closest approach radius.
@@ -242,10 +285,8 @@ coord interaction_node (coord& init_point, double& free_run, double& dir_cos, do
     double x_2 = free_run*dir_cos + x_1;
     double y_2 = free_run*std::sin(std::acos(dir_cos)) + y_1;
     std::vector<coord> subnodes = std::move(subarea(x_1, y_1, x_2, y_2, b_max, nodes));
-
     //test other parts before using it!
     //std::sort(subnodes.begin(), subnodes.end(), [&] {return abs_vector_components(init_point, subnodes[i]);});
-
     general_equation_of_the_line(A, B, C, x_1, y_1, x_2, y_2);
     do {
         r = random_sighting_parameter_generator(b_max);
@@ -289,7 +330,7 @@ double free_run_length (double& v, double alpha, double mu) {
     double sigma_polar = 2 * pi * e / v * std::sqrt(alpha / mu);
     double lambda_average = 1.0 / n * sigma_polar;
     std::uniform_real_distribution<> dis(0.0, 1.0);
-    return -lambda_average * std::log(dis(gen));
+    return std::abs(-lambda_average * std::log(dis(gen)));
 }
 
 double mass_center (double particle_mass, double potential_mass, double& b) {
@@ -382,5 +423,15 @@ void data_file_creation (std::string DataType, std::vector<coord>& xx) {
     fout.open(DataType);
     for (int i = 0; i < xx.size(); i++)
         fout << xx[i].first << '\t' << xx[i].second << std::endl;
+    fout.close();
+}
+
+void data_file_creation (std::string DataType, std::vector<std::tuple<coord, coord, double>>& data) {
+    std::ofstream fout;
+    fout.open(DataType);
+    for (int i = 0; i < data.size(); i++)
+        fout << std::get<0>(data[i]).first << '\t' << std::get<0>(data[i]).second
+             << std::get<1>(data[i]).first << '\t' << std::get<1>(data[i]).second
+             << std::get<2>(data[i]) << std::endl;
     fout.close();
 }
