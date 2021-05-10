@@ -27,28 +27,34 @@
 #include <stdexcept>
 
 
-const double m_e = 5.48579909065e-4;
+const double m_e = 5.48579909065e-4; // (atomic mass unit)
+const double v_e = 2.2e8; // (atomic velocity unit)
 const double Z_H = 1;
-const double m_H = 1.00811 / m_e;
+const double m_H = 1.00811 / m_e; // (electron mass)
 const double Z_Al = 13;
-const double m_Al = 26.9815386 / m_e;
-const double mu = m_H*m_Al / (m_H + m_Al); //reduced mass.
+const double m_Al = 26.9815386 / m_e; // (electron mass)
+const double mu = m_H*m_Al / (m_H+m_Al); //reduced mass.
+const double E_h = 27.2113845;
 
 const double a_0 = 5.29177210903e-9; //Bohr's radius (cm)
 
-const double Al_distance =  2.86e-10 /  a_0;
-const double n = 1.8194e+08 * a_0;
+const double Al_interatomic_distance =  2.86e-8 / a_0; // Bohr's radius
+//const double n = 3.3102e16 * std::pow(a_0, 2); // 1/(Bohr radius)^2
+const double n = 6.0226e+24 * std::pow(a_0, 3);
 const double alpha_Al = 8.34; //Electronic polarizability.
 
 const double pi = 3.14159265359;
 
 const double e = 1.0;
 
-const double E_final = 10;
+const double E_final = 10 / E_h;
 
-const std::pair<double, double> throwing_body_size = std::make_pair(1.8897e2, 1.8897e2);
+const std::pair<double, double> throwing_body_size = std::make_pair(2.0e4, 2.0e4); //(bohr radius)
+
+std::vector<std::tuple<double, double, double>> throwing_body_size_borders;
 
 typedef std::pair<double, double> coord;
+
 
 //The constants below are the minimum and maximum initial particle energies.
 int E_min = 20;
@@ -64,7 +70,7 @@ std::vector<std::pair<int, double>> outside; //the array of number of problem an
 
 std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
 
-std::vector<std::vector<std::pair<coord, double>>> sighting_param (number_of_problems);
+std::vector<std::vector<std::pair<coord, double>>> sighting_param (number_of_problems); //There's we will store the coordinates of nodes and b;
 
 std::random_device rd;  //Will be used to obtain a seed for the random number engine
 std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
@@ -77,20 +83,20 @@ void crystal_plot ();
 
 std::pair<double, double> default_position_and_direction ();
 
-double random_sighting_parameter_generator (double& b_max);
+double random_sighting_parameter_generator (double& b_max, double& b_min);
 
-double distance_from_mass_center (double& Energy) { return std::sqrt(Energy / potential_factor); }
+double distance_from_mass_center (double& Energy) { return std::sqrt(potential_factor / Energy); }
 
 //Read about this function in ReadMe.
 double scattering_angle (double& b, double& Energy) { return std::abs(pi - pi*b /
                                                         (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
 
-double inelastic_energy_loss (double& b, double& Energy, double& U, double& v);
+double inelastic_energy_loss (double& r, double& Energy, double& U, double& v);
 
 double Firsovs_shielding (double& Z_min, double& Z_max) { return 0.8853*a_0 *
                                                         std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
 
-double velocity (double& Energy, double m) { return std::sqrt(2 * Energy / m); }
+double velocity (double& Energy, double m) { return std::sqrt(2 * Energy / m); } // (v_e)
 
 coord coordinate_transorm (coord& polar);
 
@@ -98,12 +104,12 @@ void particles_trajectories ();
 
 double mass_center (double particle_mass, double potential_mass, double& b);
 
-double free_run_length (double& v, double alpha, double mu);
+double free_run_length (double& v, double alpha, double mu, double& b, double& E, double theta);
 
-coord interaction_node (coord& init_point, double& free_run, double& dir_cos, double& b_max,
-                        std::vector<coord>& nodes, double& closest_approach_radius);
+coord interaction_node (coord& init_point, coord& final_point, double& b_max,
+                        std::vector<coord>& nodes, double& closest_approach_radius, double& b);
 
-std::vector<coord> subarea (double& x_0, double& c_1, double& c_2, double& dir_cos, double& free_run,
+std::vector<coord> subarea (double& x_1, double& y_1, double& x_2, double& y_2, double& b_max,
                             std::vector<coord>& nodes);
 
 void general_equation_of_the_line (double& A, double& B, double& C, double x_1, double y_1, double x_2, double y_2);
@@ -124,22 +130,28 @@ coord vector_creation (coord& end, coord& begin);
 
 coord rotation_matrix (coord& vector, double& theta);
 
+void coordinate_shift (std::vector<coord>& points, double dx, double dy);
+
 double cos_t (coord& a, coord& b);
 
-double shielded_Coulomb_potential (double& r) {return potential_factor / std::pow(r, 2);};
+double shielded_Coulomb_potential (double& r) { return potential_factor / std::pow(r, 2); }
 
-void data_file_creation (std::string DataType, std::vector<std::tuple<coord, coord, double>>& data);
+void coordinates_from_pair (double& x, double& y, coord& data) { x = data.first; y = data.second; }
+
+void area_borders_creation (std::vector<std::tuple<double, double, double>>& borders, std::vector<coord>& nodes);
+
 
 int main() {
-    std::generate(default_energy.begin(), default_energy.end(), [&] {return E_min++;}); //Creating energy range.
-    std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_distance));
-    data_file_creation("Nodes", nodes);
+    std::generate(default_energy.begin(), default_energy.end(), [&] { return ++E_min/E_h; }); //Creating energy range.
+    std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_interatomic_distance));
+    coordinate_shift(nodes, throwing_body_size.first/2.0, throwing_body_size.second/2.0);
+    area_borders_creation(throwing_body_size_borders, nodes);
 
-
-    coord init = std::make_pair(0, throwing_body_size.first / 2.0);
-
+    //data_file_creation("Nodes", nodes);
+    coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
     particle_wander(default_energy, init, nodes);
 
+    //crystal_plot();
     return 0;
 }
 
@@ -180,39 +192,200 @@ double cos_t (coord& a, coord& b) {
     return scalar_prod_components(a, b) / (abs_components(a) * abs_components(b));
 }
 
+void coordinate_shift (std::vector<coord>& points, double dx, double dy) {
+    for (int i = 0; i < points.size(); ++i) {
+        points.at(i).first -= dx;
+        points.at(i).second -= dy;
+    }
+}
+
+void area_borders_creation (std::vector<std::tuple<double, double, double>>& borders, std::vector<coord>& nodes) {
+    // We set the global variable of throwing body size. So we will create the borders of task area by
+    // general line equation (Ax + By + C = 0).
+    double a = nodes[0].first;
+    double b = nodes[nodes.size()-1].second;
+    std::vector<coord> area_vertices = {std::make_pair(-a, -b),
+                                        std::make_pair(-a, b),
+                                        std::make_pair(a, b),
+                                        std::make_pair(a, -b)};
+    double A, B, C;
+    general_equation_of_the_line(A, B, C, area_vertices[0].first, area_vertices[0].second,
+                                 area_vertices[area_vertices.size()-1].first, area_vertices[area_vertices.size()-1].second);
+    borders.emplace_back(std::move(std::make_tuple(A, B, C)));
+    for (int i = 1; i < area_vertices.size(); ++i) {
+        general_equation_of_the_line(A, B, C, area_vertices[i-1].first, area_vertices[i-1].second,
+                                              area_vertices[i].first, area_vertices[i].second);
+        borders.emplace_back(std::move(std::make_tuple(A, B, C)));
+    }
+}
+
+//The functions bellow using for solving systems of linear equations via LU-decomposition.
+/*void LU_decomposition (std::vector<std::array<double, 2>>& default_matrix,
+                       std::vector<std::array<double, 2>>& L,
+                       std::vector<std::array<double, 2>>& U) {
+    U = default_matrix;
+    for (int i = 0; i < default_matrix.size(); ++i) {
+        for (int j = 0; j < default_matrix[i].size(); ++j) {
+            U.at(i).at(j) = 0;
+            L.at(i).at(j) = 0;
+        }
+        L.at(i).at(i) = 1;
+    }
+    for (int i = 0; i < default_matrix.size(); ++i) {
+        for (int j = 0; j < default_matrix[i].size(); ++j) {
+            double sum = 0;
+            for (int k = 0; k < i; k++)
+                sum += L[i][k]*U[k][j];
+            if (i <= j)
+                U.at(i).at(j) = default_matrix[i][j] - sum;
+            else
+                L.at(i).at(j) = (default_matrix[i][j] - sum) / U[j][j];
+
+        }
+    }
+}
+
+std::vector<double> direct (std::vector<std::array<double, 2>>& L, std::vector<double>& b) {
+    std::vector<double> y;
+    for (int i = 0; i < L.size(); ++i) {
+        double sum = 0;
+        for (int j = 0; j < i; ++j)
+            sum += L[i][j] * y[j];
+        y.emplace_back(b[i] - sum);
+    }
+    return y;
+}
+
+std::vector<double> reverse (std::vector<std::array<double, 2>>& U, std::vector<double>& y) {
+    std::vector<double> x = y;
+    for (int i = y.size()-1; i >= 0; i--) {
+        for (int j = i + 1; j < y.size(); ++j)
+            x.at(i) -= U[i][j] * x[j];
+        x.at(i) /= U[i][i];
+    }
+    return x;
+}
+
+coord solve (std::vector<std::array<double, 2>> matrix, std::vector<double>& free_numbers_column) {
+    std::vector<std::array<double, 2>> L(2), U(2);
+    LU_decomposition(matrix, L, U);
+
+    for (int i = 0; i < 2; i++) {
+        for (int j = 0; j < 2; j++)
+            std::cout << U[i][j] << '\t';
+        std::cout << std::endl;
+    }
+
+    std::vector<double> straight_run_results = std::move(direct(L, free_numbers_column));
+    std::vector<double> x = std::move(reverse(U, straight_run_results));
+    return std::make_pair(x[0], x[1]);
+}*/
+
+//Well, I shame about this, but LU-Decomposition doesn't works and i have no time to fix it. May be I'll rewrite this later.
+
+double det (std::vector<std::array<double, 2>>& matrix) {
+    return matrix[0][0] * matrix[1][1] - matrix[0][1]*matrix[1][0];
+}
+
+std::vector<std::array<double, 2>> replace (std::vector<std::array<double, 2>> matrix, std::vector<double>& b, int& k) {
+    for (int i = 0; i < 2; ++i)
+        matrix[i][k] = b[i];
+    return matrix;
+}
+
+coord solve (std::vector<std::array<double, 2>> matrix, std::vector<double>& free_numbers_column) {
+    double D = det(matrix);
+    std::vector<double> dets;
+    for (int k = 0; k < 2; ++k) {
+        std::vector<std::array<double, 2>> M = replace(matrix, free_numbers_column, k);
+        dets.emplace_back(det(M) / D);
+    }
+    return std::move(std::make_pair(dets[0], dets[1]));
+}
+
+bool directions_coincidence (coord& a, coord& b) { return (a.first * b.first > 0 && a.second * b.second > 0); }
+
+coord border_intersection (std::vector<std::tuple<double, double, double>>& borders, coord& inits, coord& finals) {
+    double A, B, C;
+    coord direction = vector_creation(finals, inits);
+    general_equation_of_the_line(A, B, C, inits.first, inits.second, finals.first, finals.second);
+    coord intersection;
+    for (int i = 0; i < borders.size(); ++i) {
+        double A_border = std::get<0>(borders[i]);
+        double B_border = std::get<1>(borders[i]);
+        double C_border = std::get<2>(borders[i]);
+        std::vector<std::array<double, 2>> matrix = {{A_border, B_border},
+                                                     {A, B}};
+        std::vector<double> right_part = {-C_border, -C};
+        finals = std::move(solve(matrix, right_part));
+        coord test_direction = vector_creation(finals, inits);
+        if (directions_coincidence(direction, test_direction) && abs_components(test_direction) > 1.0e-15
+            && std::abs(finals.first) <= throwing_body_size.first / 2.0
+            && std::abs(finals.second) <= throwing_body_size.second / 2.0) {
+            intersection = std::move(finals);
+            break;
+        }
+    }
+    return intersection;
+}
+
 void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes) {
-    for (int i = 0; i < number_of_problems; i++) {
+    for (int i = 0; i < number_of_problems; ++i) {
         double E = Energy[i];
-        coord particle_coordinate = initial_coordinate;
         double dir_cos = direction_cos();
-        double x_1 = initial_coordinate.first;
-        double y_1 = initial_coordinate.second;
-        double x_2, y_2, b;
+        double x_1, y_1, x_2, y_2, b, A, B, C;
+        coord particle_coordinate = initial_coordinate;
+        x_1 = particle_coordinate.first;
+        y_1 = particle_coordinate.second;
         do {
             double r = distance_from_mass_center(E);
-            double b_max = 1.5 * r;
+            double b_max = Al_interatomic_distance / 2.0;;
             double v = velocity(E, m_H);
-            double l = free_run_length(v, alpha_Al, mu);
+            double l = free_run_length(v, alpha_Al, mu, b_max, E,  std::acos(dir_cos));
             x_2 = l*dir_cos + x_1;
             y_2 = l*std::sin(std::acos(dir_cos)) + y_1;
-            coord max_free_run = std::make_pair(x_2, y_2);
-            coord scattering_potential = interaction_node(particle_coordinate, l, dir_cos, b_max,
-                                                          nodes, b);
-            coord intersection_point = intersection_of_a_line_and_a_circle(scattering_potential, b, initial_coordinate,
-                                                                           max_free_run);
+            coord direction = std::make_pair(x_2, y_2);
+            coord free_run = std::move(border_intersection(throwing_body_size_borders, particle_coordinate,
+                                                           direction));
+
+
+            // Attention! We get the parameter b gets by reference from function interaction_node(...)!
+            // We don need to play it anywhere more!
+
+            //std::cout << free_run.first << '\t' << free_run.second  << '\t' << i << std::endl;
+            coord scattering_potential = interaction_node(particle_coordinate, free_run, b_max,
+                                                          nodes, r, b);
+            if (scattering_potential.first > throwing_body_size.first) {
+                trajectory[i].emplace_back(free_run);
+                break;
+            }
+            std::cout << "scat:\t" << scattering_potential.first << '\t' << scattering_potential.second << std::endl;
+
+            particle_coordinate = intersection_of_a_line_and_a_circle(scattering_potential, b,
+                                                                      particle_coordinate, free_run);
             double theta = scattering_angle(b, E);
-            coord rho = vector_creation(intersection_point, scattering_potential);
+            coord rho = vector_creation(particle_coordinate, scattering_potential);
             coord rotation = rotation_matrix(rho, theta);
-            coord new_direction = vector_offset(intersection_point, rotation);
-            dir_cos = cos_t(max_free_run, new_direction);
+            coord new_direction = vector_offset(particle_coordinate, rotation);
+            dir_cos = cos_t(free_run, new_direction);
             double U = shielded_Coulomb_potential(r);
-            E -= inelastic_energy_loss(b, E, U, v);
-            x_1 = intersection_point.first;
-            y_1 = intersection_point.second;
-            trajectory[i].emplace_back(std::make_pair(x_1, y_1));
-            if (x_1 <= nodes[1].first) outside.emplace_back(std::make_pair(i, E));
-        } while (E > E_final && x_1 > nodes[1].first && y_1 < nodes[nodes.size()-1].second);
+            //std::cout << inelastic_energy_loss(b, E, U, v) << '\t' << i << std::endl;
+            //E += inelastic_energy_loss(b, E, U, v);
+            //std::cout << "E:\t" << E << std::endl;
+            x_1 = particle_coordinate.first;
+            y_1 = particle_coordinate.second;
+            std::cout << "There!:\t"<< x_1 << '\t' << y_1 << std::endl;
+            trajectory[i].emplace_back(particle_coordinate);
+            sighting_param[i].emplace_back(std::make_pair(scattering_potential, b));
+            if (x_1 < -throwing_body_size.first) {
+                outside.emplace_back(std::make_pair(i, E));
+                break;
+            }
+        } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
+                             && std::abs(y_1) < throwing_body_size.second/2.0);
+        std::cout << std::endl;
     }
+
 }
 
 coord rotation_matrix (coord& vector, double& theta) {
@@ -223,8 +396,8 @@ coord rotation_matrix (coord& vector, double& theta) {
     return std::make_pair(x_theta, y_theta);
 }
 
-coord vector_creation (coord& end, coord& begin) {return std::make_pair(end.first - begin.first,
-                                                                        end.second - begin.second);};
+coord vector_creation (coord& end, coord& begin) { return std::move(std::make_pair(end.first - begin.first,
+                                                                                   end.second - begin.second)); };
 
 coord vector_offset (coord& frame_of_reference, coord& vector) {
     return std::make_pair(frame_of_reference.first + vector.first, frame_of_reference.second + vector.second);
@@ -240,18 +413,19 @@ coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& init
     double a = center.first;
     double b = center.second;
     general_equation_of_the_line(A, B, C, x_init, y_init, x_final, y_final);
-    double alpha = x_init + a;
-    double beta = y_init + b;
-    double first = std::pow(A, 2) + std::pow(b, 2);
-    double second = 2*(alpha*A + beta*B);
-    double third = std::pow(alpha, 2) + std::pow(beta, 2);
+    double alpha = x_init - a;
+    double beta = y_init - b;
+    double first = std::pow(A, 2) + std::pow(B, 2);
+    double second = 2*(B*alpha - A*beta);
+    double third = std::pow(alpha, 2) + std::pow(beta, 2) - std::pow(R, 2);
     std::vector<double> t = std::move(quadratic_equation_solve(first, second, third));
-    double distance = 1.0e300;
-    for (int i = 0; i < t.size(); i++) {
-        double x = x_init + A*t[i];
-        double y = y_init + B*t[i];
+    double x, y, distance = 1.0e300;
+    for (int i = 0; i < t.size(); ++i) {
+        x = B*t[i] + x_init;
+        y = -A*t[i] + y_init;
         coord solution = std::make_pair(x, y);
-        intersection = (abs_vector_components(solution, inits) < distance) ? solution : intersection;
+        intersection = (abs_vector_components(solution, inits) <= distance) ? solution : intersection;
+        distance = abs_vector_components(solution, inits);
     }
     return intersection;
 }
@@ -261,10 +435,12 @@ std::vector<double> quadratic_equation_solve (double& a, double& b, double& c) {
     double D = std::pow(b, 2) - 4*a*c;
     double t_1, t_2;
     if (D >= 0 && !std::isnan(D)) {
-        t_1 = (-b + std::sqrt(sqrt(D))) / 2.0 / a;
-        t_2 = (-b - std::sqrt(sqrt(D))) / 2.0 / a;
-    } else
+        t_1 = (-b + std::sqrt(D)) / 2.0 / a;
+        t_2 = (-b - std::sqrt(D)) / 2.0 / a;
+    } else {
+        std::cout << "D:\t" << D << std::endl;
         t_1 = t_2 = 0;
+    }
     return {t_1, t_2};
 }
 
@@ -276,40 +452,51 @@ double direction_cos () { //returns cos angle.
 }
 
 //Then we have to define the interaction node and closest approach radius.
-coord interaction_node (coord& init_point, double& free_run, double& dir_cos, double& b_max,
-                        std::vector<coord>& nodes, double& closest_approach_radius) {
-    double A, B, C, r, d;
+coord interaction_node (coord& init_point, coord& final_point, double& b_max,
+                        std::vector<coord>& nodes, double& closest_approach_radius, double& b) {
+    double A, B, C, d;
     int i = 0;
+
     double x_1 = init_point.first;
     double y_1 = init_point.second;
-    double x_2 = free_run*dir_cos + x_1;
-    double y_2 = free_run*std::sin(std::acos(dir_cos)) + y_1;
+
+    double x_2 = final_point.first;
+    double y_2 = final_point.second;
+
     std::vector<coord> subnodes = std::move(subarea(x_1, y_1, x_2, y_2, b_max, nodes));
+    if (subnodes.empty()) return std::make_pair(1.0e308, 1.0e308);
+
     //test other parts before using it!
-    //std::sort(subnodes.begin(), subnodes.end(), [&] {return abs_vector_components(init_point, subnodes[i]);});
+    //std::sort(subnodes.begin(), subnodes.end(), [&] { return abs_vector_components(init_point, subnodes[i]);} );
+
     general_equation_of_the_line(A, B, C, x_1, y_1, x_2, y_2);
     do {
-        r = random_sighting_parameter_generator(b_max);
+        b = random_sighting_parameter_generator(b_max, closest_approach_radius);
         d = distance_from_point_to_line(A, B, C, subnodes[i].first, subnodes[i].second);
-        i++;
-    } while (r <= d && i < subnodes.size());
-    closest_approach_radius = r;
-    return subnodes[i];
+        ++i;
+    } while (b < d && i < subnodes.size());
+    if (b >= d)
+        return subnodes[i-1];
+    else {
+        b = b_max; //May be exclude this case and say that particle had no interactions.
+        return subnodes[subnodes.size()-1];
+    }
 }
 
 //Function determines nodes, which could make an influence on particle.
 std::vector<coord> subarea (double& x_1, double& y_1, double& x_2, double& y_2, double& b_max,
                             std::vector<coord>& nodes) {
     std::vector<coord> subnodes;
-    double k = (y_2 - y_1)/(x_2 - x_1);
     double x_min = std::min(x_1, x_2);
-    double x_max = std::min(x_1, x_2);
-    for (int i = 0; i < nodes.size(); i++) {
+    double x_max = std::max(x_1, x_2);
+    double k = (y_2 - y_1)/(x_max - x_min);
+    double b = y_1 - k*x_1;
+    for (int i = 0; i < nodes.size(); ++i) {
         double x = nodes[i].first;
         double y = nodes[i].second;
-        double y_up = k*x + y_1+b_max;
-        double y_down = k*x + y_1-b_max;
-        if (x >= x_min && x <= x_max && y <= y_up && y >= y_down)
+        double y_up = k*x + b+b_max/2.0;
+        double y_down = k*x + b-b_max/2.0;
+        if (x >= x_min && x <= x_max && y >= y_down && y <= y_up)
             subnodes.emplace_back(nodes[i]);
     }
     return subnodes;
@@ -326,32 +513,20 @@ double distance_from_point_to_line (double& A, double& B, double& C, double& x, 
     return std::abs(A*x + B*y + C) / std::sqrt(std::pow(A, 2) + std::pow(B, 2));
 }
 
-double free_run_length (double& v, double alpha, double mu) {
-    double sigma_polar = 2 * pi * e / v * std::sqrt(alpha / mu);
-    double lambda_average = 1.0 / n * sigma_polar;
-    std::uniform_real_distribution<> dis(0.0, 1.0);
-    return std::abs(-lambda_average * std::log(dis(gen)));
+double free_run_length (double& v, double alpha, double mu, double& b, double& E, double theta) {
+
+    // Well, it's crunch, so I'll rewrite it when the task allows to estimate the scattering cross section
+    // by another method or I have enough computing resources for large area. Now the function returns maximum length
+    // could be included into the task area.
+
+    return throwing_body_size.first * std::sqrt(2.0);
 }
 
-double mass_center (double particle_mass, double potential_mass, double& b) {
-    double sum = particle_mass*b + potential_mass;
-    return sum / (m_H + m_Al);
-}
-
-//Function takes as input coordinates in polar system and return the coordinates in descart coordinate system.
-coord coordinate_transorm (coord& polar) {
-    double phi = polar.first;
-    double rho = polar.second;
-    double x = rho * cos(phi);
-    double y = rho * sin(phi);
-    return std::move(std::make_pair(x, y));
-}
-
-//Think about this. Particles lose there's Energy anyway!
-double inelastic_energy_loss (double& b, double& Energy, double& U, double& v) {
+double inelastic_energy_loss (double& r, double& Energy, double& U, double& v) {
     double Z_min = std::min(Z_Al, Z_H);
     double Z_max = std::max(Z_Al, Z_H);
-    double r_min = std::sqrt((Energy * std::pow(b, 2) + potential_factor) / Energy); // r_min = r_min(b)
+    double r_min = r * a_0;
+    v *= v_e;
     return 0.3 * Z_Al * (std::sqrt(Z_max) + std::sqrt(Z_min)) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)) /
             (1+0.67*std::sqrt(Z_max)*r_min /
             std::pow(Firsovs_shielding(Z_min, Z_max) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)), 3.0)) *
@@ -359,10 +534,11 @@ double inelastic_energy_loss (double& b, double& Energy, double& U, double& v) {
 }
 
 //Function returns the sighting parameter for scattering angle determination.
-double random_sighting_parameter_generator (double& b_max) {
+double random_sighting_parameter_generator (double& b_max, double& b_min) {
     std::uniform_real_distribution<> dis(0.0, 1.0);
+    double c = std::pow(b_max, 2) - std::pow(b_min, 2);
     double gamma = dis(gen);
-    return b_max*std::sqrt(gamma);
+    return std::sqrt(gamma + std::pow(b_min, 2) / c) * c;
 }
 
 std::pair<double, double> default_position_and_direction () {
@@ -374,13 +550,13 @@ std::pair<double, double> default_position_and_direction () {
 
 //It will be updated later.
 void crystal_plot () {
-    //if you have problems with ".svg", you have to change ".svg" to ".pdf" in strings bellow.
+    double x, y, b;
     FILE *gp = popen("gnuplot  -persist", "w");
     if (!gp)
         throw std::runtime_error("Error opening pipe to GNU plot.");
     else {
-        std::vector<std::string> stuff = {"set term svg",
-                                          "set out \'Nodes.svg\'",
+        std::vector<std::string> stuff = {"set term pop",
+                                          "set multiplot",
                                           "set grid xtics ytics",
                                           "set title \'Cristal cell\'",
                                           "set xlabel \'x, Bohr radius\'",
@@ -389,11 +565,27 @@ void crystal_plot () {
                                           "set yrange [0:1]",
                                           "plot \'Nodes\' using 1:2 lw 1 lt rgb 'orange' ti \'Nodes\'",
                                           "set key off",
-                                          "set terminal wxt",
-                                          "set output",
-                                          "replot", "q"};
+                                          "plot \'Nodes\'",
+                                          "plot '-' u 1:2 w lines"};
         for (const auto &it : stuff)
             fprintf(gp, "%s\n", it.c_str());
+        for (int i = 0; i < number_of_problems; ++i) {
+            for (int j = 0; j < trajectory[i].size(); ++j) {
+                coordinates_from_pair(x, y, trajectory[i][j]);
+                fprintf(gp, "%f\t%f\n", x, y);
+            }
+            fprintf(gp, "%c\n%s\n", 'e', "plot '-' u 1:2 w lines");
+        }
+        for (int i = 0; i < number_of_problems; ++i) {
+            fprintf(gp, "%s\n", (i < number_of_problems-1) ? "$Data <<EOD" : "q");
+            for (int j = 0; j < sighting_param[i].size(); ++j) {
+                coordinates_from_pair(x, y, sighting_param[i][j].first);
+                b = sighting_param[i][j].second;
+                fprintf(gp, "%f\t%f\t%f\n", x, y, b);
+            }
+            fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
+            "plot $Data u 1:2:3 w p ps var pt 6 lc 'black'" : "q");
+        }
         pclose(gp);
     }
 }
@@ -411,27 +603,17 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
             l += interatomic_distance / sin(pi/4);
         }
         l = (i % 2 == 0) ? interatomic_distance / sin(pi/4) / 2.0 : 0;
-        i++;
         w += interatomic_distance * sin(pi/4);
+        ++i;
     }
     return nodes;
 }
 
 void data_file_creation (std::string DataType, std::vector<coord>& xx) {
-    //For reading created files via Matlab use command: M = dlmread('/PATH/file'); xi = M(:,i);
+    //For reading created files via Matlab use command: M = dlmread('/PATH/file'); x_i = M(:,i);
     std::ofstream fout;
     fout.open(DataType);
-    for (int i = 0; i < xx.size(); i++)
+    for (int i = 0; i < xx.size(); ++i)
         fout << xx[i].first << '\t' << xx[i].second << std::endl;
-    fout.close();
-}
-
-void data_file_creation (std::string DataType, std::vector<std::tuple<coord, coord, double>>& data) {
-    std::ofstream fout;
-    fout.open(DataType);
-    for (int i = 0; i < data.size(); i++)
-        fout << std::get<0>(data[i]).first << '\t' << std::get<0>(data[i]).second
-             << std::get<1>(data[i]).first << '\t' << std::get<1>(data[i]).second
-             << std::get<2>(data[i]) << std::endl;
     fout.close();
 }
