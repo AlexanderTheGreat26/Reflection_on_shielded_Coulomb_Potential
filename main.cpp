@@ -58,7 +58,7 @@ typedef std::pair<double, double> coord;
 
 //The constants below are the minimum and maximum initial particle energies.
 int E_min = 20;
-int E_max = 200;
+int E_max = 30;
 
 int number_of_problems = E_max - (E_min - 1);
 
@@ -67,6 +67,8 @@ std::vector<double> default_energy (number_of_problems); //Just energy range. In
 const double potential_factor = 0.4 * Z_H * Z_Al / (std::pow((std::sqrt(Z_H) + std::sqrt(Z_Al)), 2.0/3.0));
 
 std::vector<std::pair<int, double>> outside; //the array of number of problem and final energy
+
+std::vector<double> momentum (number_of_problems);
 
 std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
 
@@ -91,7 +93,9 @@ double distance_from_mass_center (double& Energy) { return std::sqrt(potential_f
 double scattering_angle (double& b, double& Energy) { return std::abs(pi - pi*b /
                                                         (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
 
-double inelastic_energy_loss (double& r, double& Energy, double& U, double& v);
+double inelastic_energy_loss (double& r, double& Energy, double& U, double v);
+
+double elastic_energy_loss (double& dir_cos, double& v_0);
 
 double Firsovs_shielding (double& Z_min, double& Z_max) { return 0.8853*a_0 *
                                                         std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
@@ -104,7 +108,7 @@ void particles_trajectories ();
 
 double mass_center (double particle_mass, double potential_mass, double& b);
 
-double free_run_length (double& v, double alpha, double mu, double& b, double& E, double theta);
+double free_run_length ();
 
 coord interaction_node (coord& init_point, coord& final_point, double& b_max,
                         std::vector<coord>& nodes, double& closest_approach_radius, double& b);
@@ -147,11 +151,11 @@ int main() {
     coordinate_shift(nodes, throwing_body_size.first/2.0, throwing_body_size.second/2.0);
     area_borders_creation(throwing_body_size_borders, nodes);
 
-    //data_file_creation("Nodes", nodes);
+    data_file_creation("Nodes", nodes);
     coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
     particle_wander(default_energy, init, nodes);
 
-    //crystal_plot();
+    crystal_plot();
     return 0;
 }
 
@@ -219,72 +223,10 @@ void area_borders_creation (std::vector<std::tuple<double, double, double>>& bor
     }
 }
 
-//The functions bellow using for solving systems of linear equations via LU-decomposition.
-/*void LU_decomposition (std::vector<std::array<double, 2>>& default_matrix,
-                       std::vector<std::array<double, 2>>& L,
-                       std::vector<std::array<double, 2>>& U) {
-    U = default_matrix;
-    for (int i = 0; i < default_matrix.size(); ++i) {
-        for (int j = 0; j < default_matrix[i].size(); ++j) {
-            U.at(i).at(j) = 0;
-            L.at(i).at(j) = 0;
-        }
-        L.at(i).at(i) = 1;
-    }
-    for (int i = 0; i < default_matrix.size(); ++i) {
-        for (int j = 0; j < default_matrix[i].size(); ++j) {
-            double sum = 0;
-            for (int k = 0; k < i; k++)
-                sum += L[i][k]*U[k][j];
-            if (i <= j)
-                U.at(i).at(j) = default_matrix[i][j] - sum;
-            else
-                L.at(i).at(j) = (default_matrix[i][j] - sum) / U[j][j];
-
-        }
-    }
-}
-
-std::vector<double> direct (std::vector<std::array<double, 2>>& L, std::vector<double>& b) {
-    std::vector<double> y;
-    for (int i = 0; i < L.size(); ++i) {
-        double sum = 0;
-        for (int j = 0; j < i; ++j)
-            sum += L[i][j] * y[j];
-        y.emplace_back(b[i] - sum);
-    }
-    return y;
-}
-
-std::vector<double> reverse (std::vector<std::array<double, 2>>& U, std::vector<double>& y) {
-    std::vector<double> x = y;
-    for (int i = y.size()-1; i >= 0; i--) {
-        for (int j = i + 1; j < y.size(); ++j)
-            x.at(i) -= U[i][j] * x[j];
-        x.at(i) /= U[i][i];
-    }
-    return x;
-}
-
-coord solve (std::vector<std::array<double, 2>> matrix, std::vector<double>& free_numbers_column) {
-    std::vector<std::array<double, 2>> L(2), U(2);
-    LU_decomposition(matrix, L, U);
-
-    for (int i = 0; i < 2; i++) {
-        for (int j = 0; j < 2; j++)
-            std::cout << U[i][j] << '\t';
-        std::cout << std::endl;
-    }
-
-    std::vector<double> straight_run_results = std::move(direct(L, free_numbers_column));
-    std::vector<double> x = std::move(reverse(U, straight_run_results));
-    return std::make_pair(x[0], x[1]);
-}*/
-
 //Well, I shame about this, but LU-Decomposition doesn't works and i have no time to fix it. May be I'll rewrite this later.
 
 double det (std::vector<std::array<double, 2>>& matrix) {
-    return matrix[0][0] * matrix[1][1] - matrix[0][1]*matrix[1][0];
+    return matrix[0][0]*matrix[1][1] - matrix[0][1]*matrix[1][0];
 }
 
 std::vector<std::array<double, 2>> replace (std::vector<std::array<double, 2>> matrix, std::vector<double>& b, int& k) {
@@ -337,11 +279,13 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
         coord particle_coordinate = initial_coordinate;
         x_1 = particle_coordinate.first;
         y_1 = particle_coordinate.second;
+        double v = velocity(E, m_H);
+        double p = m_H * v * dir_cos;
         do {
             double r = distance_from_mass_center(E);
             double b_max = Al_interatomic_distance / 2.0;;
-            double v = velocity(E, m_H);
-            double l = free_run_length(v, alpha_Al, mu, b_max, E,  std::acos(dir_cos));
+
+            double l = free_run_length();
             x_2 = l*dir_cos + x_1;
             y_2 = l*std::sin(std::acos(dir_cos)) + y_1;
             coord direction = std::make_pair(x_2, y_2);
@@ -350,9 +294,8 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
 
 
             // Attention! We get the parameter b gets by reference from function interaction_node(...)!
-            // We don need to play it anywhere more!
+            // We don't need to play it anywhere more!
 
-            //std::cout << free_run.first << '\t' << free_run.second  << '\t' << i << std::endl;
             coord scattering_potential = interaction_node(particle_coordinate, free_run, b_max,
                                                           nodes, r, b);
             if (scattering_potential.first > throwing_body_size.first) {
@@ -368,24 +311,27 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
             coord rotation = rotation_matrix(rho, theta);
             coord new_direction = vector_offset(particle_coordinate, rotation);
             dir_cos = cos_t(free_run, new_direction);
-            double U = shielded_Coulomb_potential(r);
-            //std::cout << inelastic_energy_loss(b, E, U, v) << '\t' << i << std::endl;
-            //E += inelastic_energy_loss(b, E, U, v);
-            //std::cout << "E:\t" << E << std::endl;
+            if (E >= 100/E_h) {
+                double U = shielded_Coulomb_potential(r);
+                E -= (inelastic_energy_loss(r, E, U, v) / E_h);
+                v = velocity(E, m_H);
+            } else {
+                E -= elastic_energy_loss(dir_cos, v);
+                //Emplace code of momentum analyze here.
+            }
             x_1 = particle_coordinate.first;
             y_1 = particle_coordinate.second;
-            std::cout << "There!:\t"<< x_1 << '\t' << y_1 << std::endl;
             trajectory[i].emplace_back(particle_coordinate);
             sighting_param[i].emplace_back(std::make_pair(scattering_potential, b));
-            if (x_1 < -throwing_body_size.first) {
+            if (x_1 <= -throwing_body_size.first/2.0) {
                 outside.emplace_back(std::make_pair(i, E));
+                coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
+                momentum[i] = p - m_H * v * cos_t(free_run, abscissa_axis_dir);
                 break;
             }
         } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
                              && std::abs(y_1) < throwing_body_size.second/2.0);
-        std::cout << std::endl;
     }
-
 }
 
 coord rotation_matrix (coord& vector, double& theta) {
@@ -478,8 +424,9 @@ coord interaction_node (coord& init_point, coord& final_point, double& b_max,
     if (b >= d)
         return subnodes[i-1];
     else {
-        b = b_max; //May be exclude this case and say that particle had no interactions.
-        return subnodes[subnodes.size()-1];
+        //b = b_max; //May be exclude this case and say that particle had no interactions.
+        //return subnodes[subnodes.size()-1];
+        return std::make_pair(1.0e308, 1.0e308);
     }
 }
 
@@ -513,7 +460,7 @@ double distance_from_point_to_line (double& A, double& B, double& C, double& x, 
     return std::abs(A*x + B*y + C) / std::sqrt(std::pow(A, 2) + std::pow(B, 2));
 }
 
-double free_run_length (double& v, double alpha, double mu, double& b, double& E, double theta) {
+double free_run_length () {
 
     // Well, it's crunch, so I'll rewrite it when the task allows to estimate the scattering cross section
     // by another method or I have enough computing resources for large area. Now the function returns maximum length
@@ -522,15 +469,31 @@ double free_run_length (double& v, double alpha, double mu, double& b, double& E
     return throwing_body_size.first * std::sqrt(2.0);
 }
 
-double inelastic_energy_loss (double& r, double& Energy, double& U, double& v) {
+double inelastic_energy_loss (double& r, double& Energy, double& U, double v) {
     double Z_min = std::min(Z_Al, Z_H);
     double Z_max = std::max(Z_Al, Z_H);
     double r_min = r * a_0;
     v *= v_e;
-    return 0.3 * Z_Al * (std::sqrt(Z_max) + std::sqrt(Z_min)) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)) /
-            (1+0.67*std::sqrt(Z_max)*r_min /
+    return 0.3e-7 * Z_Al * (std::sqrt(Z_max) + std::sqrt(Z_min)) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)) /
+            (1 + 0.67 * std::sqrt(Z_max)*r_min /
             std::pow(Firsovs_shielding(Z_min, Z_max) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)), 3.0)) *
                        (1 - 0.68 * U/Energy) * v;
+}
+
+double kinetic_energy (double m, double& v) {
+    return m*std::pow(v, 2) / 2.0;
+}
+
+double elastic_energy_loss (double& dir_cos, double& v_0) {
+    double a = 1.0;
+    double b = -2* mu/m_Al * dir_cos;
+    double c = -(m_Al - m_H) / (m_Al + m_H);
+    std::vector<double> t = std::move(quadratic_equation_solve(a, b, c));
+    double velocity_ratio = (t[0] > 0) ? t[0] : t[1];
+    double E_init = kinetic_energy(m_H, v_0);
+    v_0 *= velocity_ratio; // v / v_0
+    double E_fin = kinetic_energy(m_H, v_0);
+    return E_init - E_fin;
 }
 
 //Function returns the sighting parameter for scattering angle determination.
@@ -561,8 +524,8 @@ void crystal_plot () {
                                           "set title \'Cristal cell\'",
                                           "set xlabel \'x, Bohr radius\'",
                                           "set ylabel \'y, Bohr radius\'",
-                                          "set xrange [0:1]",
-                                          "set yrange [0:1]",
+                                          "set xrange [-10000:-9900]",
+                                          "set yrange [-500:500]",
                                           "plot \'Nodes\' using 1:2 lw 1 lt rgb 'orange' ti \'Nodes\'",
                                           "set key off",
                                           "plot \'Nodes\'",
@@ -580,7 +543,7 @@ void crystal_plot () {
             fprintf(gp, "%s\n", (i < number_of_problems-1) ? "$Data <<EOD" : "q");
             for (int j = 0; j < sighting_param[i].size(); ++j) {
                 coordinates_from_pair(x, y, sighting_param[i][j].first);
-                b = sighting_param[i][j].second;
+                b = sighting_param[i][j].second / 100.0 / 1000.0; //
                 fprintf(gp, "%f\t%f\t%f\n", x, y, b);
             }
             fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
