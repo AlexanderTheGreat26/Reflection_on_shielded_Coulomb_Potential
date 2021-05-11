@@ -39,9 +39,6 @@ const double E_h = 27.2113845;
 const double a_0 = 5.29177210903e-9; //Bohr's radius (cm)
 
 const double Al_interatomic_distance =  2.86e-8 / a_0; // Bohr's radius
-//const double n = 3.3102e16 * std::pow(a_0, 2); // 1/(Bohr radius)^2
-const double n = 6.0226e+24 * std::pow(a_0, 3);
-const double alpha_Al = 8.34; //Electronic polarizability.
 
 const double pi = 3.14159265359;
 
@@ -58,7 +55,7 @@ typedef std::pair<double, double> coord;
 
 //The constants below are the minimum and maximum initial particle energies.
 int E_min = 20;
-int E_max = 30;
+int E_max = 100;
 
 int number_of_problems = E_max - (E_min - 1);
 
@@ -68,7 +65,7 @@ const double potential_factor = 0.4 * Z_H * Z_Al / (std::pow((std::sqrt(Z_H) + s
 
 std::vector<std::pair<int, double>> outside; //the array of number of problem and final energy
 
-std::vector<double> momentum (number_of_problems);
+std::vector<std::pair<double, double>> momentum (number_of_problems);
 
 std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
 
@@ -83,13 +80,11 @@ void data_file_creation (std::string DataType, std::vector<coord>& xx);
 
 void crystal_plot ();
 
-std::pair<double, double> default_position_and_direction ();
 
 double random_sighting_parameter_generator (double& b_max, double& b_min);
 
 double distance_from_mass_center (double& Energy) { return std::sqrt(potential_factor / Energy); }
 
-//Read about this function in ReadMe.
 double scattering_angle (double& b, double& Energy) { return std::abs(pi - pi*b /
                                                         (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
 
@@ -101,12 +96,6 @@ double Firsovs_shielding (double& Z_min, double& Z_max) { return 0.8853*a_0 *
                                                         std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
 
 double velocity (double& Energy, double m) { return std::sqrt(2 * Energy / m); } // (v_e)
-
-coord coordinate_transorm (coord& polar);
-
-void particles_trajectories ();
-
-double mass_center (double particle_mass, double potential_mass, double& b);
 
 double free_run_length ();
 
@@ -144,17 +133,22 @@ void coordinates_from_pair (double& x, double& y, coord& data) { x = data.first;
 
 void area_borders_creation (std::vector<std::tuple<double, double, double>>& borders, std::vector<coord>& nodes);
 
+void pair_plot (std::string& DataType, std::string title, std::string xlabel, std::string ylabel);
 
 int main() {
-    std::generate(default_energy.begin(), default_energy.end(), [&] { return ++E_min/E_h; }); //Creating energy range.
+    std::generate(default_energy.begin(), default_energy.end(), [&] { return (++E_min) / E_h; }); //Creating energy range.
     std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_interatomic_distance));
     coordinate_shift(nodes, throwing_body_size.first/2.0, throwing_body_size.second/2.0);
     area_borders_creation(throwing_body_size_borders, nodes);
-
-    data_file_creation("Nodes", nodes);
+    //data_file_creation("Nodes", nodes);
     coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
     particle_wander(default_energy, init, nodes);
 
+    std::string DataName = "Momentum";
+    std::sort(momentum.begin(), momentum.end(), [] (auto& left, auto& right)
+    { return left.first < right.first; });
+    data_file_creation(DataName, momentum);
+    pair_plot(DataName, "p = p(V)", "velocity, V_e", "Momentum, m_e V_e");
     crystal_plot();
     return 0;
 }
@@ -280,7 +274,8 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
         x_1 = particle_coordinate.first;
         y_1 = particle_coordinate.second;
         double v = velocity(E, m_H);
-        double p = m_H * v * dir_cos;
+        double v_init = v * dir_cos;
+        double p = m_H * v_init;
         do {
             double r = distance_from_mass_center(E);
             double b_max = Al_interatomic_distance / 2.0;;
@@ -292,7 +287,6 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
             coord free_run = std::move(border_intersection(throwing_body_size_borders, particle_coordinate,
                                                            direction));
 
-
             // Attention! We get the parameter b gets by reference from function interaction_node(...)!
             // We don't need to play it anywhere more!
 
@@ -302,8 +296,6 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
                 trajectory[i].emplace_back(free_run);
                 break;
             }
-            std::cout << "scat:\t" << scattering_potential.first << '\t' << scattering_potential.second << std::endl;
-
             particle_coordinate = intersection_of_a_line_and_a_circle(scattering_potential, b,
                                                                       particle_coordinate, free_run);
             double theta = scattering_angle(b, E);
@@ -311,26 +303,25 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
             coord rotation = rotation_matrix(rho, theta);
             coord new_direction = vector_offset(particle_coordinate, rotation);
             dir_cos = cos_t(free_run, new_direction);
-            if (E >= 100/E_h) {
+            if (E > 100/E_h) {
                 double U = shielded_Coulomb_potential(r);
                 E -= (inelastic_energy_loss(r, E, U, v) / E_h);
                 v = velocity(E, m_H);
-            } else {
+            } else
                 E -= elastic_energy_loss(dir_cos, v);
-                //Emplace code of momentum analyze here.
-            }
             x_1 = particle_coordinate.first;
             y_1 = particle_coordinate.second;
             trajectory[i].emplace_back(particle_coordinate);
             sighting_param[i].emplace_back(std::make_pair(scattering_potential, b));
-            if (x_1 <= -throwing_body_size.first/2.0) {
+            if (x_1 <= -throwing_body_size.first/2.0 && std::abs(y_1) <= throwing_body_size.second/2.0) {
                 outside.emplace_back(std::make_pair(i, E));
                 coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
-                momentum[i] = p - m_H * v * cos_t(free_run, abscissa_axis_dir);
+                momentum[i] = std::make_pair(v_init, p - m_H * v * cos_t(free_run, abscissa_axis_dir));
                 break;
             }
         } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
                              && std::abs(y_1) < throwing_body_size.second/2.0);
+        std::cout << i << std::endl;
     }
 }
 
@@ -383,10 +374,7 @@ std::vector<double> quadratic_equation_solve (double& a, double& b, double& c) {
     if (D >= 0 && !std::isnan(D)) {
         t_1 = (-b + std::sqrt(D)) / 2.0 / a;
         t_2 = (-b - std::sqrt(D)) / 2.0 / a;
-    } else {
-        std::cout << "D:\t" << D << std::endl;
-        t_1 = t_2 = 0;
-    }
+    } else t_1 = t_2 = 0;
     return {t_1, t_2};
 }
 
@@ -423,11 +411,7 @@ coord interaction_node (coord& init_point, coord& final_point, double& b_max,
     } while (b < d && i < subnodes.size());
     if (b >= d)
         return subnodes[i-1];
-    else {
-        //b = b_max; //May be exclude this case and say that particle had no interactions.
-        //return subnodes[subnodes.size()-1];
-        return std::make_pair(1.0e308, 1.0e308);
-    }
+    else return std::make_pair(1.0e308, 1.0e308);
 }
 
 //Function determines nodes, which could make an influence on particle.
@@ -456,16 +440,14 @@ void general_equation_of_the_line (double& A, double& B, double& C, double x_1, 
 }
 
 double distance_from_point_to_line (double& A, double& B, double& C, double& x, double& y) {
-    //d = |A*x + B*y + C| / sqrt(A^2 + B^2)
+    // d = |A*x + B*y + C| / sqrt(A^2 + B^2)
     return std::abs(A*x + B*y + C) / std::sqrt(std::pow(A, 2) + std::pow(B, 2));
 }
 
+// Well, it's crunch, so I'll rewrite it when the task allows to estimate the scattering cross section
+// by another method or I have enough computing resources for large area. Now the function returns maximum length
+// could be included into the task area.
 double free_run_length () {
-
-    // Well, it's crunch, so I'll rewrite it when the task allows to estimate the scattering cross section
-    // by another method or I have enough computing resources for large area. Now the function returns maximum length
-    // could be included into the task area.
-
     return throwing_body_size.first * std::sqrt(2.0);
 }
 
@@ -526,8 +508,8 @@ void crystal_plot () {
                                           "set ylabel \'y, Bohr radius\'",
                                           "set xrange [-10000:-9900]",
                                           "set yrange [-500:500]",
-                                          "plot \'Nodes\' using 1:2 lw 1 lt rgb 'orange' ti \'Nodes\'",
                                           "set key off",
+                                          "plot \'Nodes\' using 1:2 lw 1 lt rgb 'orange' ti \'Nodes\'",
                                           "plot \'Nodes\'",
                                           "plot '-' u 1:2 w lines"};
         for (const auto &it : stuff)
@@ -549,6 +531,28 @@ void crystal_plot () {
             fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
             "plot $Data u 1:2:3 w p ps var pt 6 lc 'black'" : "q");
         }
+        pclose(gp);
+    }
+}
+
+void pair_plot (std::string& DataType, std::string title, std::string xlabel, std::string ylabel) {
+    FILE *gp = popen("gnuplot  -persist", "w");
+    if (!gp) throw std::runtime_error("Error opening pipe to GNU plot.");
+    else {
+        std::vector<std::string> stuff = {"set term eps",
+                                          "set out \'" + DataType + ".eps\'",
+                                          "set grid xtics ytics",
+                                          "set title \'" + title + "\'",
+                                          "set xlabel \'" + xlabel + "\'",
+                                          "set ylabel \'" + ylabel + "\'",
+                                          "set key off",
+                                          "plot \'" + DataType + "\' using 1:2 lw 1 lt rgb 'orange' ti \'" + DataType + "\', \'"
+                                           + DataType + "\' using 1:2 with lines",
+                                          "set terminal pop",
+                                          "set output",
+                                          "replot", "q"};
+        for (const auto& it : stuff)
+            fprintf(gp, "%s\n", it.c_str());
         pclose(gp);
     }
 }
@@ -575,8 +579,10 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
 void data_file_creation (std::string DataType, std::vector<coord>& xx) {
     //For reading created files via Matlab use command: M = dlmread('/PATH/file'); x_i = M(:,i);
     std::ofstream fout;
+    std::cout << "In!\n";
     fout.open(DataType);
     for (int i = 0; i < xx.size(); ++i)
-        fout << xx[i].first << '\t' << xx[i].second << std::endl;
+        if (!(std::isnan(xx[i].first) && std::isnan(xx[i].second)))
+            fout << xx[i].first << '\t' << xx[i].second << std::endl;
     fout.close();
 }
