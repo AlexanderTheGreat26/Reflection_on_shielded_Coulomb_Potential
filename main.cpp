@@ -148,7 +148,7 @@ int main() {
     std::sort(momentum.begin(), momentum.end(), [] (auto& left, auto& right)
     { return left.first < right.first; });
     data_file_creation(DataName, momentum);
-    pair_plot(DataName, "p = p(V)", "velocity, V_e", "Momentum, m_e V_e");
+    pair_plot(DataName, "p = p(E_r)", "Energy_r, eV", "Momentum, m_e V_e");
     crystal_plot();
     return 0;
 }
@@ -269,7 +269,7 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
     for (int i = 0; i < number_of_problems; ++i) {
         double E = Energy[i];
         double dir_cos = direction_cos();
-        double x_1, y_1, x_2, y_2, b, A, B, C;
+        double x_1, y_1, x_2, y_2, b;
         coord particle_coordinate = initial_coordinate;
         x_1 = particle_coordinate.first;
         y_1 = particle_coordinate.second;
@@ -316,7 +316,8 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
             if (x_1 <= -throwing_body_size.first/2.0 && std::abs(y_1) <= throwing_body_size.second/2.0) {
                 outside.emplace_back(std::make_pair(i, E));
                 coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
-                momentum[i] = std::make_pair(v_init, p - m_H * v * cos_t(free_run, abscissa_axis_dir));
+                momentum[i] = std::make_pair(m_H * std::pow(v_init, 2) / 2.0 * E_h,
+                                             p - m_H * v * cos_t(free_run, abscissa_axis_dir));
                 break;
             }
         } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
