@@ -51,7 +51,7 @@ const std::pair<double, double> throwing_body_size = std::make_pair(2.0e4, 2.0e4
 
 std::vector<std::tuple<double, double, double>> throwing_body_size_borders;
 
-const int data_count = 4;
+const int data_count = 5.0e2;
 
 typedef std::pair<double, double> coord;
 
@@ -156,8 +156,8 @@ void data_file_creation (std::string DataType, const T& xx) {
     std::ofstream fout;
     fout.open(DataType);
     for (int i = 0; i < xx.size(); ++i)
-        if (std::isfinite(xx[i].first) && std::isfinite(xx[i].second))
-            fout << xx[i].first << '\t' << xx[i].second << std::endl;
+        if (std::isfinite(xx.at(i).first) && std::isfinite(xx.at(i).second))
+            fout << xx.at(i).first << '\t' << xx.at(i).second << std::endl;
     fout.close();
 }
 
@@ -168,9 +168,10 @@ int main() {
     std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_interatomic_distance));
     coordinate_shift(nodes, throwing_body_size.first/2.0, throwing_body_size.second/2.0);
     area_borders_creation(throwing_body_size_borders, nodes);
+
     //data_file_creation("Nodes", nodes);
     energy_groups_borders_generator(borders_of_groups);
-
+    std::cout << "Here!\n";
     coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
     //0particle_wander(default_energy, init, nodes);
 
@@ -243,28 +244,28 @@ std::vector<std::pair<int, double>> groups_momentum_contribution (std::vector<st
     std::vector<std::pair<int, double>> groups (number_of_problems);
     std::vector<double> count (number_of_problems);
     for (int i = 0; i < data.size(); ++i) {
-        int group = energy_group(data[i].first);
+        int group = energy_group(data.at(i).first);
         for (int j = 0; j < number_of_problems; ++j)
             if (group == j) {
-                groups[j].first = group;
-                groups[j].second += (data[i].second > 0 && std::isfinite(data[i].second)) ? data[i].second : 0;
-                ++count[j];
+                groups.at(j).first = group;
+                groups.at(j).second += (data.at(i).second > 0 && std::isfinite(data.at(i).second)) ? data.at(i).second : 0;
+                ++count.at(j);
             }
     }
     for (int j = 0; j < groups.size(); ++j)
-        groups[j].second /= (count[j] / m_e_g / v_e);
+        groups.at(j).second /= (count.at(j) / m_e_g / v_e);
     return groups;
 }
 
 void energy_groups_borders_generator (std::vector<double>& borders) {
-    borders[0] = 0;
-    for (int i = 1; i <= number_of_problems; ++i)
-        borders[i] = default_energy[i] * E_h;
+    borders.at(0) = 0;
+    for (int i = 1; i < number_of_problems; ++i)
+        borders.at(i) = default_energy.at(i) * E_h;
 }
 
 int energy_group (double& E) {
     for (int i = borders_of_groups.size() - 1; i > 0; --i)
-        if (E >= borders_of_groups[i-1] && E <= borders_of_groups[i])
+        if (E >= borders_of_groups.at(i-1) && E <= borders_of_groups.at(i))
             return i - 1;
 }
 
@@ -316,19 +317,19 @@ void coordinate_shift (std::vector<coord>& points, double dx, double dy) {
 void area_borders_creation (std::vector<std::tuple<double, double, double>>& borders, std::vector<coord>& nodes) {
     // We set the global variable of throwing body size. So we will create the borders of task area by
     // general line equation (Ax + By + C = 0).
-    double a = nodes[0].first;
+    double a = nodes.at(0).first;
     double b = nodes[nodes.size()-1].second;
     std::vector<coord> area_vertices = {std::make_pair(-a, -b),
                                         std::make_pair(-a, b),
                                         std::make_pair(a, b),
                                         std::make_pair(a, -b)};
     double A, B, C;
-    general_equation_of_the_line(A, B, C, area_vertices[0].first, area_vertices[0].second,
+    general_equation_of_the_line(A, B, C, area_vertices.at(0).first, area_vertices.at(0).second,
                                  area_vertices[area_vertices.size()-1].first, area_vertices[area_vertices.size()-1].second);
     borders.emplace_back(std::move(std::make_tuple(A, B, C)));
     for (int i = 1; i < area_vertices.size(); ++i) {
-        general_equation_of_the_line(A, B, C, area_vertices[i-1].first, area_vertices[i-1].second,
-                                     area_vertices[i].first, area_vertices[i].second);
+        general_equation_of_the_line(A, B, C, area_vertices.at(i-1).first, area_vertices.at(i-1).second,
+                                     area_vertices.at(i).first, area_vertices.at(i).second);
         borders.emplace_back(std::move(std::make_tuple(A, B, C)));
     }
 }
@@ -336,12 +337,12 @@ void area_borders_creation (std::vector<std::tuple<double, double, double>>& bor
 //Well, I shame about this, but LU-Decomposition doesn't works and i have no time to fix it. May be I'll rewrite this later.
 
 double det (std::vector<std::array<double, 2>>& matrix) {
-    return matrix[0][0]*matrix[1][1] - matrix[0][1]*matrix[1][0];
+    return matrix.at(0).at(0)*matrix.at(1).at(1) - matrix.at(0).at(1)*matrix.at(1).at(0);
 }
 
 std::vector<std::array<double, 2>> replace (std::vector<std::array<double, 2>> matrix, std::vector<double>& b, int& k) {
     for (int i = 0; i < 2; ++i)
-        matrix[i][k] = b[i];
+        matrix.at(i).at(k) = b.at(i);
     return matrix;
 }
 
@@ -352,7 +353,7 @@ coord solve (std::vector<std::array<double, 2>> matrix, std::vector<double>& fre
         std::vector<std::array<double, 2>> M = replace(matrix, free_numbers_column, k);
         dets.emplace_back(det(M) / D);
     }
-    return std::move(std::make_pair(dets[0], dets[1]));
+    return std::move(std::make_pair(dets.at(0), dets.at(1)));
 }
 
 bool directions_coincidence (coord& a, coord& b) { return (a.first * b.first > 0 && a.second * b.second > 0); }
@@ -363,9 +364,9 @@ coord border_intersection (std::vector<std::tuple<double, double, double>>& bord
     general_equation_of_the_line(A, B, C, inits.first, inits.second, finals.first, finals.second);
     coord intersection;
     for (int i = 0; i < borders.size(); ++i) {
-        double A_border = std::get<0>(borders[i]);
-        double B_border = std::get<1>(borders[i]);
-        double C_border = std::get<2>(borders[i]);
+        double A_border = std::get<0>(borders.at(i));
+        double B_border = std::get<1>(borders.at(i));
+        double C_border = std::get<2>(borders.at(i));
         std::vector<std::array<double, 2>> matrix = {{A_border, B_border},
                                                      {A, B}};
         std::vector<double> right_part = {-C_border, -C};
@@ -385,7 +386,7 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
                                                         std::vector<coord>& nodes) {
     std::vector<std::pair<double, double>> momentum (number_of_problems);
     for (int i = 0; i < number_of_problems; ++i) {
-        double E = Energy[i];
+        double E = Energy.at(i);
         double dir_cos = direction_cos();
         double x_1, y_1, x_2, y_2, b;
         coord particle_coordinate = initial_coordinate;
@@ -414,7 +415,7 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
             coord scattering_potential = interaction_node(particle_coordinate, free_run, b_max,
                                                           nodes, r, b);
             if (scattering_potential.first > throwing_body_size.first) {
-                trajectory[i].emplace_back(free_run);
+                trajectory.at(i).emplace_back(free_run);
                 break;
             }
             particle_coordinate = intersection_of_a_line_and_a_circle(scattering_potential, b,
@@ -432,12 +433,12 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
                 E -= elastic_energy_loss(dir_cos, v);
             x_1 = particle_coordinate.first;
             y_1 = particle_coordinate.second;
-            trajectory[i].emplace_back(particle_coordinate);
-            sighting_param[i].emplace_back(std::make_pair(scattering_potential, b));
+            trajectory.at(i).emplace_back(particle_coordinate);
+            sighting_param.at(i).emplace_back(std::make_pair(scattering_potential, b));
             if (x_1 <= -throwing_body_size.first/2.0 && std::abs(y_1) <= throwing_body_size.second/2.0) {
                 outside.emplace_back(std::make_pair(i, E));
                 coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
-                momentum[i] = std::make_pair(m_H * std::pow(v_init, 2) / 2.0 * E_h,
+                momentum.at(i) = std::make_pair(m_H * std::pow(v_init, 2) / 2.0 * E_h,
                                              p - m_H * v * cos_t(free_run, abscissa_axis_dir));
                 break;
             }
@@ -481,8 +482,8 @@ coord intersection_of_a_line_and_a_circle (coord& center, double& R, coord& init
     std::vector<double> t = std::move(quadratic_equation_solve(first, second, third));
     double x, y, distance = 1.0e300;
     for (int i = 0; i < t.size(); ++i) {
-        x = B*t[i] + x_init;
-        y = -A*t[i] + y_init;
+        x = B*t.at(i) + x_init;
+        y = -A*t.at(i) + y_init;
         coord solution = std::make_pair(x, y);
         intersection = (abs_vector_components(solution, inits) <= distance) ? solution : intersection;
         distance = abs_vector_components(solution, inits);
@@ -524,16 +525,16 @@ coord interaction_node (coord& init_point, coord& final_point, double& b_max,
     if (subnodes.empty()) return std::make_pair(1.0e308, 1.0e308);
 
     //test other parts before using it!
-    //std::sort(subnodes.begin(), subnodes.end(), [&] { return abs_vector_components(init_point, subnodes[i]);} );
+    //std::sort(subnodes.begin(), subnodes.end(), [&] { return abs_vector_components(init_point, subnodes.at(i));} );
 
     general_equation_of_the_line(A, B, C, x_1, y_1, x_2, y_2);
     do {
         b = random_sighting_parameter_generator(b_max, closest_approach_radius);
-        d = distance_from_point_to_line(A, B, C, subnodes[i].first, subnodes[i].second);
+        d = distance_from_point_to_line(A, B, C, subnodes.at(i).first, subnodes.at(i).second);
         ++i;
     } while (b < d && i < subnodes.size());
     if (b >= d)
-        return subnodes[i-1];
+        return subnodes.at(i-1);
     else return std::make_pair(1.0e308, 1.0e308);
 }
 
@@ -546,12 +547,12 @@ std::vector<coord> subarea (double& x_1, double& y_1, double& x_2, double& y_2, 
     double k = (y_2 - y_1)/(x_max - x_min);
     double b = y_1 - k*x_1;
     for (int i = 0; i < nodes.size(); ++i) {
-        double x = nodes[i].first;
-        double y = nodes[i].second;
+        double x = nodes.at(i).first;
+        double y = nodes.at(i).second;
         double y_up = k*x + b+b_max/2.0;
         double y_down = k*x + b-b_max/2.0;
         if (x >= x_min && x <= x_max && y >= y_down && y <= y_up)
-            subnodes.emplace_back(nodes[i]);
+            subnodes.emplace_back(nodes.at(i));
     }
     return subnodes;
 }
@@ -594,7 +595,7 @@ double elastic_energy_loss (double& dir_cos, double& v_0) {
     double b = -2* mu/m_Al * dir_cos;
     double c = -(m_Al - m_H) / (m_Al + m_H);
     std::vector<double> t = std::move(quadratic_equation_solve(a, b, c));
-    double velocity_ratio = (t[0] > 0) ? t[0] : t[1];
+    double velocity_ratio = (t.at(0) > 0) ? t.at(0) : t.at(1);
     double E_init = kinetic_energy(m_H, v_0);
     v_0 *= velocity_ratio; // v / v_0
     double E_fin = kinetic_energy(m_H, v_0);
@@ -638,17 +639,17 @@ void crystal_plot () {
         for (const auto &it : stuff)
             fprintf(gp, "%s\n", it.c_str());
         for (int i = 0; i < number_of_problems; ++i) {
-            for (int j = 0; j < trajectory[i].size(); ++j) {
-                coordinates_from_pair(x, y, trajectory[i][j]);
+            for (int j = 0; j < trajectory.at(i).size(); ++j) {
+                coordinates_from_pair(x, y, trajectory.at(i).at(j));
                 fprintf(gp, "%f\t%f\n", x, y);
             }
             fprintf(gp, "%c\n%s\n", 'e', "plot '-' u 1:2 w lines");
         }
         for (int i = 0; i < number_of_problems; ++i) {
             fprintf(gp, "%s\n", (i < number_of_problems-1) ? "$Data <<EOD" : "q");
-            for (int j = 0; j < sighting_param[i].size(); ++j) {
-                coordinates_from_pair(x, y, sighting_param[i][j].first);
-                b = sighting_param[i][j].second / 100.0 / 1000.0; //
+            for (int j = 0; j < sighting_param.at(i).size(); ++j) {
+                coordinates_from_pair(x, y, sighting_param.at(i).at(j).first);
+                b = sighting_param.at(i).at(j).second / 100.0 / 1000.0; //
                 fprintf(gp, "%f\t%f\t%f\n", x, y, b);
             }
             fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
@@ -704,7 +705,7 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
     std::ofstream fout;
     fout.open(DataType);
     for (int i = 0; i < xx.size(); ++i)
-        if (!(std::isnan(xx[i].first) && std::isnan(xx[i].second)))
-            fout << xx[i].first << '\t' << xx[i].second << std::endl;
+        if (!(std::isnan(xx.at(i).first) && std::isnan(xx.at(i).second)))
+            fout << xx.at(i).first << '\t' << xx.at(i).second << std::endl;
     fout.close();
 }*/
