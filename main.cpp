@@ -25,9 +25,10 @@
 #include <array>
 #include <algorithm>
 #include <stdexcept>
-
+#include "omp.h"
 
 const double m_e = 5.48579909065e-4; // (atomic mass unit)
+const double m_e_g = 9.10938356e-28; // (gramm)
 const double v_e = 2.2e8; // (atomic velocity unit)
 const double Z_H = 1;
 const double m_H = 1.00811 / m_e; // (electron mass)
@@ -50,6 +51,8 @@ const std::pair<double, double> throwing_body_size = std::make_pair(2.0e4, 2.0e4
 
 std::vector<std::tuple<double, double, double>> throwing_body_size_borders;
 
+const int data_count = 4;
+
 typedef std::pair<double, double> coord;
 
 
@@ -61,11 +64,13 @@ int number_of_problems = E_max - (E_min - 1);
 
 std::vector<double> default_energy (number_of_problems); //Just energy range. In main() we will emplace there data.
 
+std::vector<double> borders_of_groups (number_of_problems + 1);
+
 const double potential_factor = 0.4 * Z_H * Z_Al / (std::pow((std::sqrt(Z_H) + std::sqrt(Z_Al)), 2.0/3.0));
 
 std::vector<std::pair<int, double>> outside; //the array of number of problem and final energy
 
-std::vector<std::pair<double, double>> momentum (number_of_problems);
+//std::vector<std::pair<double, double>> momentum (number_of_problems);
 
 std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
 
@@ -76,7 +81,7 @@ std::mt19937 gen(rd()); //Standard mersenne_twister_engine seeded with rd()
 
 std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area, double interatomic_distance);
 
-void data_file_creation (std::string DataType, std::vector<coord>& xx);
+//void data_file_creation (std::string DataType, std::vector<coord>& xx);
 
 void crystal_plot ();
 
@@ -86,14 +91,14 @@ double random_sighting_parameter_generator (double& b_max, double& b_min);
 double distance_from_mass_center (double& Energy) { return std::sqrt(potential_factor / Energy); }
 
 double scattering_angle (double& b, double& Energy) { return std::abs(pi - pi*b /
-                                                        (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
+                                                                           (std::sqrt(std::pow(b, 2) + potential_factor / Energy)));}
 
 double inelastic_energy_loss (double& r, double& Energy, double& U, double v);
 
 double elastic_energy_loss (double& dir_cos, double& v_0);
 
 double Firsovs_shielding (double& Z_min, double& Z_max) { return 0.8853*a_0 *
-                                                        std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
+                                                                 std::pow(std::sqrt(Z_min) + std::sqrt(Z_max), -2.0/3.0);}
 
 double velocity (double& Energy, double m) { return std::sqrt(2 * Energy / m); } // (v_e)
 
@@ -115,7 +120,7 @@ std::vector<double> quadratic_equation_solve (double& a, double& b, double& c);
 
 double direction_cos ();
 
-void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes);
+std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes);
 
 coord vector_offset (coord& frame_of_reference, coord& vector);
 
@@ -135,23 +140,134 @@ void area_borders_creation (std::vector<std::tuple<double, double, double>>& bor
 
 void pair_plot (std::string& DataType, std::string title, std::string xlabel, std::string ylabel);
 
+void energy_groups_plot (std::string data);
+
+int energy_group (double& E);
+
+void energy_groups_borders_generator (std::vector<double>& borders);
+
+std::vector<std::pair<int, double>> groups_momentum_contribution (std::vector<std::pair<double, double>>& data);
+
+std::vector<std::pair <double, double>> data_set_creation(std::vector<double> E, coord init,
+                                                          std::vector<coord>& nodes);
+
+template <typename T>
+void data_file_creation (std::string DataType, const T& xx) {
+    std::ofstream fout;
+    fout.open(DataType);
+    for (int i = 0; i < xx.size(); ++i)
+        if (std::isfinite(xx[i].first) && std::isfinite(xx[i].second))
+            fout << xx[i].first << '\t' << xx[i].second << std::endl;
+    fout.close();
+}
+
+
+
 int main() {
     std::generate(default_energy.begin(), default_energy.end(), [&] { return (++E_min) / E_h; }); //Creating energy range.
     std::vector<coord> nodes = std::move(crystal_cell (throwing_body_size, Al_interatomic_distance));
     coordinate_shift(nodes, throwing_body_size.first/2.0, throwing_body_size.second/2.0);
     area_borders_creation(throwing_body_size_borders, nodes);
     //data_file_creation("Nodes", nodes);
-    coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
-    particle_wander(default_energy, init, nodes);
+    energy_groups_borders_generator(borders_of_groups);
 
-    std::string DataName = "Momentum";
+    coord init = std::make_pair(-throwing_body_size.first/2.0, 0);
+    //0particle_wander(default_energy, init, nodes);
+
+    std::vector<std::pair<double, double>> data = std::move(data_set_creation(default_energy, init, nodes));
+    data_file_creation("data", data);
+    std::vector<std::pair<int, double>> groups_contribution = std::move(groups_momentum_contribution (data));
+    data_file_creation("Groups_contribution", groups_contribution);
+    energy_groups_plot("Groups_contribution");
+
+
+    /*std::string DataName = "Momentum";
     std::sort(momentum.begin(), momentum.end(), [] (auto& left, auto& right)
     { return left.first < right.first; });
     data_file_creation(DataName, momentum);
     pair_plot(DataName, "p = p(E_r)", "Energy_r, eV", "Momentum, m_e V_e");
-    crystal_plot();
+    //crystal_plot();*/
     return 0;
 }
+
+
+void energy_groups_plot (std::string data) {
+    FILE *gp = popen("gnuplot  -persist", "w");
+    if (!gp) throw std::runtime_error("Error opening pipe to GNUplot.");
+    std::vector<std::string> stuff = {"set term eps",
+                                      "set output \'" + data + ".eps\'",
+                                      "set key off",
+                                      "set grid xtics ytics",
+                                      "set xlabel \'Energy_r, eV\'",
+                                      "set ylabel \'Average momentum, cm g/s\'",
+                                      //"set title \'" + title + "\'",
+                                      "set xrange [19:" + std::to_string(E_max) + "]",
+                                      "set boxwidth 0.5",
+                                      "set style fill solid",
+                                      "plot \'" + data + "\' using 1:2 with boxes",
+                                      "set terminal pop",
+                                      "set output",
+                                      "replot", "q"};
+    for (const auto& it : stuff)
+        fprintf(gp, "%s\n", it.c_str());
+    pclose(gp);
+}
+
+std::vector<std::pair <double, double>> data_set_creation(std::vector<double> E, coord init,
+                                                          std::vector<coord>& nodes) {
+    std::vector<std::pair<double, double>> average_momentum;
+#pragma omp parallel
+    {
+        std::vector<std::pair<double, double>> average_data_private;
+#pragma omp for nowait schedule(static)
+        for (int i = 0; i < data_count; ++i) {
+            std::vector<std::pair<double, double>> momentum = std::move(particle_wander(E, init, nodes));
+            std::string DataName = "Momentum_" + std::to_string(i);
+            std::sort(momentum.begin(), momentum.end(), [] (auto& left, auto& right)
+            { return left.first < right.first; });
+            data_file_creation(DataName, momentum);
+            average_data_private.insert(average_data_private.end(), momentum.begin(),
+                                    momentum.end());
+        }
+#pragma omp for schedule(static) ordered
+        for (int  i = 0; i < omp_get_num_threads(); ++i) {
+#pragma omp ordered
+            average_momentum.insert(average_momentum.end(), average_data_private.begin(),
+                                    average_data_private.end());
+        }
+    }
+    return average_momentum;
+}
+
+std::vector<std::pair<int, double>> groups_momentum_contribution (std::vector<std::pair<double, double>>& data) {
+    std::vector<std::pair<int, double>> groups (number_of_problems);
+    std::vector<double> count (number_of_problems);
+    for (int i = 0; i < data.size(); ++i) {
+        int group = energy_group(data[i].first);
+        for (int j = 0; j < number_of_problems; ++j)
+            if (group == j) {
+                groups[j].first = group;
+                groups[j].second += (data[i].second > 0 && std::isfinite(data[i].second)) ? data[i].second : 0;
+                ++count[j];
+            }
+    }
+    for (int j = 0; j < groups.size(); ++j)
+        groups[j].second /= (count[j] / m_e_g / v_e);
+    return groups;
+}
+
+void energy_groups_borders_generator (std::vector<double>& borders) {
+    borders[0] = 0;
+    for (int i = 1; i <= number_of_problems; ++i)
+        borders[i] = default_energy[i] * E_h;
+}
+
+int energy_group (double& E) {
+    for (int i = borders_of_groups.size() - 1; i > 0; --i)
+        if (E >= borders_of_groups[i-1] && E <= borders_of_groups[i])
+            return i - 1;
+}
+
 
 template<typename T, size_t... Is>
 auto abs_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
@@ -212,7 +328,7 @@ void area_borders_creation (std::vector<std::tuple<double, double, double>>& bor
     borders.emplace_back(std::move(std::make_tuple(A, B, C)));
     for (int i = 1; i < area_vertices.size(); ++i) {
         general_equation_of_the_line(A, B, C, area_vertices[i-1].first, area_vertices[i-1].second,
-                                              area_vertices[i].first, area_vertices[i].second);
+                                     area_vertices[i].first, area_vertices[i].second);
         borders.emplace_back(std::move(std::make_tuple(A, B, C)));
     }
 }
@@ -265,7 +381,9 @@ coord border_intersection (std::vector<std::tuple<double, double, double>>& bord
     return intersection;
 }
 
-void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes) {
+std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Energy, coord& initial_coordinate,
+                                                        std::vector<coord>& nodes) {
+    std::vector<std::pair<double, double>> momentum (number_of_problems);
     for (int i = 0; i < number_of_problems; ++i) {
         double E = Energy[i];
         double dir_cos = direction_cos();
@@ -276,7 +394,10 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
         double v = velocity(E, m_H);
         double v_init = v * dir_cos;
         double p = m_H * v_init;
+        int j = 0;
         do {
+            ++j;
+            if (j > 500) break; //It's lucky one, in real world it does not exist.
             double r = distance_from_mass_center(E);
             double b_max = Al_interatomic_distance / 2.0;;
 
@@ -321,9 +442,10 @@ void particle_wander (std::vector<double>& Energy, coord& initial_coordinate, st
                 break;
             }
         } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
-                             && std::abs(y_1) < throwing_body_size.second/2.0);
+                 && std::abs(y_1) < throwing_body_size.second/2.0);
         std::cout << i << std::endl;
     }
+    return momentum;
 }
 
 coord rotation_matrix (coord& vector, double& theta) {
@@ -458,9 +580,9 @@ double inelastic_energy_loss (double& r, double& Energy, double& U, double v) {
     double r_min = r * a_0;
     v *= v_e;
     return 0.3e-7 * Z_Al * (std::sqrt(Z_max) + std::sqrt(Z_min)) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)) /
-            (1 + 0.67 * std::sqrt(Z_max)*r_min /
-            std::pow(Firsovs_shielding(Z_min, Z_max) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)), 3.0)) *
-                       (1 - 0.68 * U/Energy) * v;
+           (1 + 0.67 * std::sqrt(Z_max)*r_min /
+                std::pow(Firsovs_shielding(Z_min, Z_max) * (std::pow(Z_max, 1.0/6.0) + std::pow(Z_min, 1.0/6.0)), 3.0)) *
+           (1 - 0.68 * U/Energy) * v;
 }
 
 double kinetic_energy (double m, double& v) {
@@ -508,7 +630,7 @@ void crystal_plot () {
                                           "set xlabel \'x, Bohr radius\'",
                                           "set ylabel \'y, Bohr radius\'",
                                           "set xrange [-10000:-9900]",
-                                          "set yrange [-500:500]",
+                                          "set yrange [0:500]",
                                           "set key off",
                                           "plot \'Nodes\' using 1:2 lw 1 lt rgb 'orange' ti \'Nodes\'",
                                           "plot \'Nodes\'",
@@ -530,7 +652,7 @@ void crystal_plot () {
                 fprintf(gp, "%f\t%f\t%f\n", x, y, b);
             }
             fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
-            "plot $Data u 1:2:3 w p ps var pt 6 lc 'black'" : "q");
+                                           "plot $Data u 1:2:3 w p ps var pt 6 lc 'black'" : "q");
         }
         pclose(gp);
     }
@@ -548,7 +670,7 @@ void pair_plot (std::string& DataType, std::string title, std::string xlabel, st
                                           "set ylabel \'" + ylabel + "\'",
                                           "set key off",
                                           "plot \'" + DataType + "\' using 1:2 lw 1 lt rgb 'orange' ti \'" + DataType + "\', \'"
-                                           + DataType + "\' using 1:2 with lines",
+                                          + DataType + "\' using 1:2 with lines",
                                           "set terminal pop",
                                           "set output",
                                           "replot", "q"};
@@ -577,13 +699,12 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
     return nodes;
 }
 
-void data_file_creation (std::string DataType, std::vector<coord>& xx) {
+/*void data_file_creation (std::string DataType, std::vector<coord>& xx) {
     //For reading created files via Matlab use command: M = dlmread('/PATH/file'); x_i = M(:,i);
     std::ofstream fout;
-    std::cout << "In!\n";
     fout.open(DataType);
     for (int i = 0; i < xx.size(); ++i)
         if (!(std::isnan(xx[i].first) && std::isnan(xx[i].second)))
             fout << xx[i].first << '\t' << xx[i].second << std::endl;
     fout.close();
-}
+}*/
