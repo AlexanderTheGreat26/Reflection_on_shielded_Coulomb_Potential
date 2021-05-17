@@ -205,7 +205,7 @@ void energy_groups_plot (std::string data) {
                                       "set xrange [19:" + std::to_string(E_max) + "]",
                                       "set boxwidth 0.5",
                                       "set style fill solid",
-                                      "plot \'" + data + "\' using 1:2 with boxes",
+                                      "plot \'" + data + "\' using ($1+20):2 with boxes",
                                       "set terminal pop",
                                       "set output",
                                       "replot", "q"};
@@ -268,7 +268,6 @@ int energy_group (double& E) {
         if (E >= borders_of_groups.at(i-1) && E <= borders_of_groups.at(i))
             return i - 1;
 }
-
 
 template<typename T, size_t... Is>
 auto abs_components_impl(T const& t, T const& t1, std::index_sequence<Is...>, std::index_sequence<Is...>) {
