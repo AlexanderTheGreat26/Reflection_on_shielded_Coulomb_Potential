@@ -438,7 +438,7 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
                 outside.emplace_back(std::make_pair(i, E));
                 coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
                 momentum.at(i) = std::make_pair(m_H * std::pow(v_init, 2) / 2.0 * E_h,
-                                             p - m_H * v * cos_t(free_run, abscissa_axis_dir));
+                                             std::abs(p - m_H * v * cos_t(free_run, abscissa_axis_dir)));
                 break;
             }
         } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
