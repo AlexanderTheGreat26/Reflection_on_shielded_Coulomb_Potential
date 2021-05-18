@@ -395,6 +395,7 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
         coord particle_coordinate = initial_coordinate;
         x_1 = particle_coordinate.first;
         y_1 = particle_coordinate.second;
+        trajectory.at(i).emplace_back(particle_coordinate);
         double v = velocity(E, m_H);
         double v_init = v * dir_cos;
         double p = m_H * v_init;
