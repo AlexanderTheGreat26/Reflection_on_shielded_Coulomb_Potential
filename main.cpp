@@ -51,7 +51,7 @@ const std::pair<double, double> throwing_body_size = std::make_pair(2.0e4, 2.0e4
 
 std::vector<std::tuple<double, double, double>> throwing_body_size_borders;
 
-const int data_count = 5.0e2;
+const int data_count = 4;
 
 typedef std::pair<double, double> coord;
 
@@ -72,7 +72,7 @@ std::vector<std::pair<int, double>> outside; //the array of number of problem an
 
 //std::vector<std::pair<double, double>> momentum (number_of_problems);
 
-std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
+//std::vector<std::vector<coord>> trajectory (number_of_problems); //There're points of interactions for every particle.
 
 std::vector<std::vector<std::pair<coord, double>>> sighting_param (number_of_problems); //There's we will store the coordinates of nodes and b;
 
@@ -83,7 +83,7 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
 
 //void data_file_creation (std::string DataType, std::vector<coord>& xx);
 
-void crystal_plot ();
+void crystal_plot (std::vector<std::vector<coord>>& trajectory);
 
 
 double random_sighting_parameter_generator (double& b_max, double& b_min);
@@ -120,7 +120,8 @@ std::vector<double> quadratic_equation_solve (double& a, double& b, double& c);
 
 double direction_cos ();
 
-std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Energy, coord& initial_coordinate, std::vector<coord>& nodes);
+std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Energy, coord& initial_coordinate,
+                                                        std::vector<coord>& nodes, std::vector<std::vector<coord>>& trajectory);
 
 coord vector_offset (coord& frame_of_reference, coord& vector);
 
@@ -222,13 +223,15 @@ std::vector<std::pair <double, double>> data_set_creation(std::vector<double> E,
         std::vector<std::pair<double, double>> average_data_private;
 #pragma omp for nowait schedule(static)
         for (int i = 0; i < data_count; ++i) {
-            std::vector<std::pair<double, double>> momentum = std::move(particle_wander(E, init, nodes));
+            std::vector<std::vector<coord>> trajectory;
+            std::vector<std::pair<double, double>> momentum = std::move(particle_wander(E, init, nodes, trajectory));
             std::string DataName = "Momentum_" + std::to_string(i);
             std::sort(momentum.begin(), momentum.end(), [] (auto& left, auto& right)
             { return left.first < right.first; });
             data_file_creation(DataName, momentum);
             average_data_private.insert(average_data_private.end(), momentum.begin(),
                                     momentum.end());
+            //crystal_plot(trajectory);
         }
 #pragma omp for schedule(static) ordered
         for (int  i = 0; i < omp_get_num_threads(); ++i) {
@@ -382,8 +385,9 @@ coord border_intersection (std::vector<std::tuple<double, double, double>>& bord
 }
 
 std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Energy, coord& initial_coordinate,
-                                                        std::vector<coord>& nodes) {
+                                                        std::vector<coord>& nodes, std::vector<std::vector<coord>>& trajectory) {
     std::vector<std::pair<double, double>> momentum (number_of_problems);
+    trajectory.resize(number_of_problems);
     for (int i = 0; i < number_of_problems; ++i) {
         double E = Energy.at(i);
         double dir_cos = direction_cos();
@@ -408,6 +412,8 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
             coord free_run = std::move(border_intersection(throwing_body_size_borders, particle_coordinate,
                                                            direction));
 
+            //direction = vector_creation(free_run, particle_coordinate);
+
             // Attention! We get the parameter b gets by reference from function interaction_node(...)!
             // We don't need to play it anywhere more!
 
@@ -423,7 +429,10 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
             coord rho = vector_creation(particle_coordinate, scattering_potential);
             coord rotation = rotation_matrix(rho, theta);
             coord new_direction = vector_offset(particle_coordinate, rotation);
-            dir_cos = cos_t(free_run, new_direction);
+
+            dir_cos = cos_t(direction, new_direction);
+
+            //dir_cos = cos_t(free_run, new_direction);
             if (E > 100/E_h) {
                 double U = shielded_Coulomb_potential(r);
                 E -= (inelastic_energy_loss(r, E, U, v) / E_h);
@@ -617,7 +626,7 @@ std::pair<double, double> default_position_and_direction () {
 }
 
 //It will be updated later.
-void crystal_plot () {
+void crystal_plot (std::vector<std::vector<coord>>& trajectory) {
     double x, y, b;
     FILE *gp = popen("gnuplot  -persist", "w");
     if (!gp)
@@ -644,7 +653,7 @@ void crystal_plot () {
             }
             fprintf(gp, "%c\n%s\n", 'e', "plot '-' u 1:2 w lines");
         }
-        for (int i = 0; i < number_of_problems; ++i) {
+        /*for (int i = 0; i < number_of_problems; ++i) {
             fprintf(gp, "%s\n", (i < number_of_problems-1) ? "$Data <<EOD" : "q");
             for (int j = 0; j < sighting_param.at(i).size(); ++j) {
                 coordinates_from_pair(x, y, sighting_param.at(i).at(j).first);
@@ -653,7 +662,7 @@ void crystal_plot () {
             }
             fprintf(gp, "%s\n%s\n", "EOD", (i < number_of_problems-1) ?
                                            "plot $Data u 1:2:3 w p ps var pt 6 lc 'black'" : "q");
-        }
+        }*/
         pclose(gp);
     }
 }
