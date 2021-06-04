@@ -43,15 +43,13 @@ const double Al_interatomic_distance =  2.86e-8 / a_0; // Bohr's radius
 
 const double pi = 3.14159265359;
 
-const double e = 1.0;
-
 const double E_final = 10 / E_h;
 
 const std::pair<double, double> throwing_body_size = std::make_pair(2.0e4, 2.0e4); //(bohr radius)
 
 std::vector<std::tuple<double, double, double>> throwing_body_size_borders;
 
-const int data_count = 4;
+const int data_count = 3;
 
 typedef std::pair<double, double> coord;
 
@@ -202,7 +200,7 @@ void energy_groups_plot (std::string data) {
                                       "set grid xtics ytics",
                                       "set xlabel \'Energy_r, eV\'",
                                       "set ylabel \'Average momentum, cm g/s\'",
-                                      //"set title \'" + title + "\'",
+            //"set title \'" + title + "\'",
                                       "set xrange [19:" + std::to_string(E_max) + "]",
                                       "set boxwidth 0.5",
                                       "set style fill solid",
@@ -230,7 +228,7 @@ std::vector<std::pair <double, double>> data_set_creation(std::vector<double> E,
             { return left.first < right.first; });
             data_file_creation(DataName, momentum);
             average_data_private.insert(average_data_private.end(), momentum.begin(),
-                                    momentum.end());
+                                        momentum.end());
             //crystal_plot(trajectory);
         }
 #pragma omp for schedule(static) ordered
@@ -426,6 +424,15 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
             }
             particle_coordinate = intersection_of_a_line_and_a_circle(scattering_potential, b,
                                                                       particle_coordinate, free_run);
+
+            //Integrated inelastic loss via LSS
+
+            //It must be refactored!
+            coord start = std::move(std::make_pair(x_1, y_1));
+            double dl = abs_vector_components(start, particle_coordinate) * a_0;
+            double dE = (-2.4087e+03 * sqrt(E*E_h) * dl)/E_h;
+            E += dE;
+
             double theta = scattering_angle(b, E);
             coord rho = vector_creation(particle_coordinate, scattering_potential);
             coord rotation = rotation_matrix(rho, theta);
@@ -448,10 +455,10 @@ std::vector<std::pair<double, double>> particle_wander (std::vector<double>& Ene
                 outside.emplace_back(std::make_pair(i, E));
                 coord abscissa_axis_dir = std::make_pair(1.0, 0.0);
                 momentum.at(i) = std::make_pair(m_H * std::pow(v_init, 2) / 2.0 * E_h,
-                                             std::abs(p - m_H * v * cos_t(free_run, abscissa_axis_dir)));
+                                                std::abs(p - m_H * v * cos_t(free_run, abscissa_axis_dir)));
                 break;
             }
-        } while (E > E_final && std::abs(x_1) < throwing_body_size.first/2.0
+        } while (E > 0 && std::abs(x_1) < throwing_body_size.first/2.0
                  && std::abs(y_1) < throwing_body_size.second/2.0);
         std::cout << i << std::endl;
     }
@@ -708,13 +715,3 @@ std::vector<coord> crystal_cell (std::pair<double, double> problem_solution_area
     }
     return nodes;
 }
-
-/*void data_file_creation (std::string DataType, std::vector<coord>& xx) {
-    //For reading created files via Matlab use command: M = dlmread('/PATH/file'); x_i = M(:,i);
-    std::ofstream fout;
-    fout.open(DataType);
-    for (int i = 0; i < xx.size(); ++i)
-        if (!(std::isnan(xx.at(i).first) && std::isnan(xx.at(i).second)))
-            fout << xx.at(i).first << '\t' << xx.at(i).second << std::endl;
-    fout.close();
-}*/
