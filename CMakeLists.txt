@@ -6,7 +6,3 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -fopenmp -static-libstdc++ -s
 
 
 add_executable(Reflection_on_shielded_Coulomb_Potential main.cpp)
-
-set(SOURCE_FILES main.cpp)
-
-add_executable(MyTarget ${SOURCE_FILES})
